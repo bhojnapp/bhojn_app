@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "813735532981",
+    "project_id": "bhojn-app",
+    "storage_bucket": "bhojn-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:813735532981:android:1bfeb9ea3e2bf2b4f961fc",
+        "android_client_info": {
+          "package_name": "com.example.bhojn_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCihYMgasbJjmXby6_HgsJuhXr6AuVXyVc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
