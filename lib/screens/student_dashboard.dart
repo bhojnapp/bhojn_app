@@ -26,6 +26,9 @@ String _getMealType(String timeStr) {
   }
 }
 
+// ============================================================================
+// MAIN DASHBOARD CLASS
+// ============================================================================
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
 
@@ -39,25 +42,20 @@ class _StudentDashboardState extends State<StudentDashboard> {
   final User? user = FirebaseAuth.instance.currentUser;
   bool _hasShownJoke = false;
 
+  String? _globalSelectedMessId;
+
   @override
   void initState() {
     super.initState();
 
     if (user != null) {
       NotificationServices notificationServices = NotificationServices();
-
-      // ✅ STEP 1: Initialize, permissions, aur FCM Token save karo
       notificationServices.initLocalNotifications().then((_) {
         print("Student Chowkidar Ready! ✅");
         notificationServices.requestNotificationPermission();
         notificationServices.saveDeviceToken(user!.uid, 'users');
-
-        // ✅ STEP 2: Start FCM Foreground Listener
-        // (Purana Firestore 'active_messes' length check wala hack hata diya)
         notificationServices.firebaseInit();
       });
-    } else {
-      print("User login nahi hai bhai!");
     }
   }
 
@@ -71,19 +69,19 @@ class _StudentDashboardState extends State<StudentDashboard> {
     String randomJoke = jokes[Random().nextInt(jokes.length)];
 
     showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-            backgroundColor: BhojnTheme.surfaceCard,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: const Text("Daily Chutkula 🤣", style: TextStyle(color: BhojnTheme.primaryOrange, fontWeight: FontWeight.bold)),
-            content: Text(randomJoke, style: const TextStyle(color: Colors.white, fontSize: 16)),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("Haha, OK! 😂", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold))
-              )
-            ]
-        )
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: BhojnTheme.surfaceCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Daily Chutkula 🤣", style: TextStyle(color: BhojnTheme.primaryOrange, fontWeight: FontWeight.bold)),
+        content: Text(randomJoke, style: const TextStyle(color: Colors.white, fontSize: 16)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Haha, OK! 😂", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+          )
+        ],
+      ),
     );
   }
 
@@ -105,12 +103,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Lottie.asset(
-                  'assets/Thank you with confetti.json',
-                  width: 250,
-                  height: 250,
-                  repeat: false,
-                ),
+                Lottie.asset('assets/Thank you with confetti.json', width: 250, height: 250, repeat: false),
                 const SizedBox(height: 20),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -119,10 +112,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: Colors.green, width: 1.5)
                   ),
-                  child: const Text(
-                      "Scan Successful! 🎉",
-                      style: TextStyle(color: Colors.green, fontSize: 18, fontWeight: FontWeight.bold)
-                  ),
+                  child: const Text("Scan Successful! 🎉", style: TextStyle(color: Colors.green, fontSize: 18, fontWeight: FontWeight.bold)),
                 )
               ],
             ),
@@ -133,9 +123,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    print("Dashboard Build ho raha hai! User ID: ${user?.uid}"); // 👈 Ye line dalo
-    if (user == null) return const Scaffold(body: Center(child: Text("Auth Error - Login kar bhai!")));
-    String firstName = user?.displayName?.split(' ')[0] ?? 'Bhojni';
+    if (user == null) return const Scaffold(body: Center(child: Text("Login kar bhai!")));
 
     return StreamBuilder<DocumentSnapshot>(
         stream: FirebaseFirestore.instance.collection('users').doc(user!.uid).snapshots(),
@@ -146,7 +134,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
           var studentData = studentSnapshot.data?.data() as Map<String, dynamic>? ?? {};
 
-          // 🚀 Smartly Identify ALL Active Messes
           List<String> activeMesses = [];
           if (studentData['joined_mess_id'] != null && studentData['joined_mess_id'].toString().isNotEmpty) {
             activeMesses.add(studentData['joined_mess_id'].toString());
@@ -157,10 +144,14 @@ class _StudentDashboardState extends State<StudentDashboard> {
             }
           }
 
-          bool hasJoinedMess = activeMesses.isNotEmpty;
+          if (activeMesses.isNotEmpty && (_globalSelectedMessId == null || !activeMesses.contains(_globalSelectedMessId))) {
+            _globalSelectedMessId = activeMesses.first;
+          } else if (activeMesses.isEmpty) {
+            _globalSelectedMessId = null;
+          }
 
           if (_isInitialLoad) {
-            _currentIndex = hasJoinedMess ? 0 : 1;
+            _currentIndex = activeMesses.isNotEmpty ? 0 : 1;
             _isInitialLoad = false;
           }
 
@@ -170,7 +161,15 @@ class _StudentDashboardState extends State<StudentDashboard> {
           }
 
           final List<Widget> tabs = [
-            _HomeTab(activeMesses: activeMesses, studentUid: user!.uid, studentData: studentData),
+            _HomeTab(
+              activeMesses: activeMesses,
+              studentUid: user!.uid,
+              studentData: studentData,
+              selectedMessId: _globalSelectedMessId,
+              onMessSwitched: (newId) {
+                setState(() { _globalSelectedMessId = newId; });
+              },
+            ),
             const _ExploreTab(),
             const _HostelsTab(),
             _MeTab(activeMesses: activeMesses, studentData: studentData, auth: AuthService(), uid: user!.uid)
@@ -184,24 +183,47 @@ class _StudentDashboardState extends State<StudentDashboard> {
                 title: Row(
                     children: [
                       const Text('BHOJN', style: TextStyle(fontWeight: FontWeight.w900, color: BhojnTheme.primaryOrange, fontStyle: FontStyle.italic, fontSize: 24)),
+                      if (_currentIndex == 0 && _globalSelectedMessId != null) ...[
+                        const SizedBox(width: 8),
+                        StreamBuilder<DocumentSnapshot>(
+                            stream: FirebaseFirestore.instance.collection('users').doc(_globalSelectedMessId).snapshots(),
+                            builder: (context, messSnap) {
+                              if (!messSnap.hasData || !messSnap.data!.exists) return const SizedBox();
+                              bool isOpen = messSnap.data!['is_open'] ?? true;
+
+                              return AnimatedContainer(
+                                  duration: const Duration(milliseconds: 300),
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                  decoration: BoxDecoration(
+                                      color: isOpen ? Colors.green.withOpacity(0.15) : Colors.redAccent.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: isOpen ? Colors.green : Colors.redAccent, width: 1.5)
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(width: 6, height: 6, decoration: BoxDecoration(shape: BoxShape.circle, color: isOpen ? Colors.green : Colors.redAccent)),
+                                      const SizedBox(width: 4),
+                                      Text(isOpen ? "OPEN" : "CLOSED", style: TextStyle(color: isOpen ? Colors.green : Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                                    ],
+                                  )
+                              );
+                            }
+                        )
+                      ],
                       const Spacer(),
-                      Text("Hello $firstName ", style: const TextStyle(color: Colors.white, fontSize: 16)),
+                      const Text("Hello", style: TextStyle(color: Colors.white, fontSize: 16)),
                       const _WavingHand()
                     ]
                 )
             ),
-
             body: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              transitionBuilder: (Widget child, Animation<double> animation) {
-                return FadeTransition(opacity: animation, child: child);
-              },
-              child: KeyedSubtree(
-                key: ValueKey<int>(_currentIndex),
-                child: tabs[_currentIndex],
-              ),
+                duration: const Duration(milliseconds: 300),
+                transitionBuilder: (Widget child, Animation<double> animation) {
+                  return FadeTransition(opacity: animation, child: child);
+                },
+                child: KeyedSubtree(key: ValueKey<int>(_currentIndex), child: tabs[_currentIndex])
             ),
-
             floatingActionButton: FloatingActionButton(
                 heroTag: null,
                 onPressed: () async {
@@ -216,7 +238,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
                 child: const Icon(Icons.qr_code_scanner, size: 30, color: Colors.white)
             ),
             floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-
             bottomNavigationBar: BottomAppBar(
               color: BhojnTheme.surfaceCard,
               shape: const CircularNotchedRectangle(),
@@ -252,22 +273,9 @@ class _StudentDashboardState extends State<StudentDashboard> {
         child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              AnimatedScale(
-                scale: isSel ? 1.2 : 1.0,
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeOutBack,
-                child: Icon(icon, color: color, size: 24),
-              ),
+              AnimatedScale(scale: isSel ? 1.2 : 1.0, duration: const Duration(milliseconds: 300), curve: Curves.easeOutBack, child: Icon(icon, color: color, size: 24)),
               const SizedBox(height: 2),
-              AnimatedDefaultTextStyle(
-                duration: const Duration(milliseconds: 300),
-                style: TextStyle(
-                    color: color,
-                    fontSize: 10,
-                    fontWeight: isSel ? FontWeight.bold : FontWeight.normal
-                ),
-                child: Text(label),
-              )
+              AnimatedDefaultTextStyle(duration: const Duration(milliseconds: 300), style: TextStyle(color: color, fontSize: 10, fontWeight: isSel ? FontWeight.bold : FontWeight.normal), child: Text(label))
             ]
         ),
       ),
@@ -276,36 +284,32 @@ class _StudentDashboardState extends State<StudentDashboard> {
 }
 
 // ============================================================================
-// 🏠 1. HOME TAB (🔥 Bug 1 & 2 FIXED: Strict Specific Mess Data Isolator)
+// 🏠 1. HOME TAB (Advanced Custom Dues & Anti-Spam)
 // ============================================================================
 class _HomeTab extends StatefulWidget {
   final List<String> activeMesses;
   final String studentUid;
   final Map<String, dynamic> studentData;
+  final String? selectedMessId;
+  final Function(String) onMessSwitched;
 
-  const _HomeTab({required this.activeMesses, required this.studentUid, required this.studentData});
+  const _HomeTab({
+    required this.activeMesses,
+    required this.studentUid,
+    required this.studentData,
+    required this.selectedMessId,
+    required this.onMessSwitched
+  });
 
   @override
   State<_HomeTab> createState() => _HomeTabState();
 }
 
 class _HomeTabState extends State<_HomeTab> {
-  String? selectedMessId;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.activeMesses.isNotEmpty) {
-      selectedMessId = widget.activeMesses.first;
-    }
-  }
-
-  // 🚀 THE MASTER ISOLATOR: Prevents Global Data from corrupting Multiple Messes!
   Map<String, dynamic> _getMessSpecificData(String mId) {
     Map<String, dynamic> specificData = widget.studentData['mess_data']?[mId] ?? {};
     if (specificData.isNotEmpty) return specificData;
 
-    // Fallback to global ONLY if this specific mess is the primary/legacy joined mess.
     if (widget.studentData['joined_mess_id'] == mId) {
       return {
         'total_allotted_meals': widget.studentData['total_allotted_meals'],
@@ -313,15 +317,12 @@ class _HomeTabState extends State<_HomeTab> {
         'pending_dues': widget.studentData['pending_dues']
       };
     }
-    // FRESH MESS: Must return default 0s to prevent showing 60/60!
     return { 'total_allotted_meals': 60, 'remaining_meals': 60, 'pending_dues': 0 };
   }
 
   void _handlePendingDues(BuildContext context, Map<String, dynamic> messData, String messUid, int totalAllottedMeals) {
     Map<String, dynamic> strictState = _getMessSpecificData(messUid);
-
     double pendingAmount = double.tryParse(strictState['pending_dues']?.toString() ?? '0') ?? 0;
-
     int priceMonthly = int.tryParse(messData['price_monthly']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '0') ?? 0;
     int price15 = int.tryParse(messData['price_15days']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '0') ?? 0;
 
@@ -334,98 +335,278 @@ class _HomeTabState extends State<_HomeTab> {
     String ownerUpi = messData['upi_id'] ?? "";
     String messName = messData['mess_name'] ?? "Mess";
 
+    // 🚀 Custom Payment Controller
+    TextEditingController payCtrl = TextEditingController(text: pendingAmount.toInt().toString());
+
     showModalBottomSheet(
-        context: context, backgroundColor: BhojnTheme.surfaceCard, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (context) => Padding(
-          padding: const EdgeInsets.all(25.0),
-          child: Column(
-              mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.account_balance_wallet, color: Colors.white, size: 50), const SizedBox(height: 15),
-            const Text("Billing & Dues", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)), const SizedBox(height: 20),
+        context: context,
+        isScrollControlled: true, // Keyboard aane pe sheet upar jayegi
+        backgroundColor: BhojnTheme.surfaceCard,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (context) => StatefulBuilder(
+            builder: (context, setModalState) {
+              return StreamBuilder<QuerySnapshot>(
+                // 🚀 ANTI-SPAM: Check checking if previous request is still pending
+                  stream: FirebaseFirestore.instance.collection('users').doc(messUid).collection('recent_transactions')
+                      .where('uid', isEqualTo: widget.studentUid)
+                      .where('isPending', isEqualTo: true)
+                      .where('type', isEqualTo: 'Due Payment (Pending Verify)')
+                      .snapshots(),
+                  builder: (context, pendingSnap) {
+                    bool hasPendingRequest = pendingSnap.hasData && pendingSnap.data!.docs.isNotEmpty;
 
-            // 🚀 LIVE DUES BREAKDOWN UI
-            Container(
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
-              child: Column(
-                children: [
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Plan Total:", style: TextStyle(color: Colors.grey)), Text("₹$planPrice", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]),
-                  const Divider(color: Colors.white10, height: 20),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Amount Paid:", style: TextStyle(color: Colors.grey)), Text("₹$paidAmount", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold))]),
-                  const Divider(color: Colors.white10, height: 20),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("To Be Paid:", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), Text("₹$pendingAmount", style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 18))]),
-                ],
-              ),
-            ),
-            const SizedBox(height: 25),
+                    return Padding(
+                      padding: EdgeInsets.only(
+                          bottom: MediaQuery.of(context).viewInsets.bottom,
+                          left: 25, right: 25, top: 25
+                      ),
+                      child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.account_balance_wallet, color: Colors.white, size: 50),
+                            const SizedBox(height: 15),
+                            const Text("Billing & Dues", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 20),
 
-            if (pendingAmount > 0) ...[
-              const Text("Clear your dues to continue enjoying meals without interruption.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 12)), const SizedBox(height: 20),
-              SizedBox(
-                  width: double.infinity, height: 50,
-                  child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.primaryOrange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                      onPressed: () async {
-                        if(ownerUpi.isEmpty || ownerUpi == "No UPI ID") { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Owner UPI not available!"))); return; }
-                        String upiUrl = "upi://pay?pa=$ownerUpi&pn=${Uri.encodeComponent(messName)}&tr=$messUid&am=$pendingAmount&cu=INR";
+                            Container(
+                              padding: const EdgeInsets.all(15),
+                              decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
+                              child: Column(
+                                children: [
+                                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Plan Total:", style: TextStyle(color: Colors.grey)), Text("₹$planPrice", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]),
+                                  const Divider(color: Colors.white10, height: 20),
+                                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Amount Paid:", style: TextStyle(color: Colors.grey)), Text("₹$paidAmount", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold))]),
+                                  const Divider(color: Colors.white10, height: 20),
+                                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Total Due:", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), Text("₹$pendingAmount", style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 18))]),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 25),
 
-                        // 🚀 NOTIFY OWNER OF PAYMENT VERIFICATION
-                        String timeStr = DateFormat('hh:mm a').format(DateTime.now());
-                        await FirebaseFirestore.instance.collection('users').doc(messUid).collection('recent_transactions').add({
-                          'name': widget.studentData['name'] ?? "Student", 'uid': widget.studentUid, 'amount': pendingAmount.toInt(), 'type': 'Due Payment (Pending Verify)', 'time': timeStr, 'isPending': true, 'timestamp': FieldValue.serverTimestamp(),
-                        });
+                            if (pendingAmount > 0) ...[
+                              if (hasPendingRequest) ...[
+                                // 🚀 WARNING: Agar pehle se payment pending hai
+                                Container(
+                                  padding: const EdgeInsets.all(15),
+                                  decoration: BoxDecoration(
+                                      color: Colors.orange.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.orange.withOpacity(0.5))
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.hourglass_top, color: Colors.orange),
+                                      const SizedBox(width: 10),
+                                      const Expanded(child: Text("⏳ Teri ek payment already verification ke liye pending hai. Owner ke approve karne tak thoda wait kar bhai!", style: TextStyle(color: Colors.orange, fontSize: 12, height: 1.5)))
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                SizedBox(width: double.infinity, height: 50, child: OutlinedButton(style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24)), onPressed: () => Navigator.pop(context), child: const Text("Close")))
+                              ] else ...[
+                                // 🚀 CUSTOM AMOUNT: Nayi payment karne ke liye
+                                const Align(alignment: Alignment.centerLeft, child: Text("Enter Amount to Pay Now (₹)", style: TextStyle(color: Colors.white70, fontSize: 12))),
+                                const SizedBox(height: 8),
+                                TextField(
+                                    controller: payCtrl,
+                                    keyboardType: TextInputType.number,
+                                    style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                                    decoration: InputDecoration(
+                                        prefixIcon: const Icon(Icons.currency_rupee, color: Colors.white70),
+                                        filled: true,
+                                        fillColor: Colors.white.withOpacity(0.05),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)
+                                    )
+                                ),
+                                const SizedBox(height: 10),
+                                const Text("Clear your dues to continue enjoying meals without interruption.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 11)),
+                                const SizedBox(height: 20),
 
-                        try { await launchUrl(Uri.parse(upiUrl), mode: LaunchMode.externalApplication); } catch (e) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Could not open UPI app."))); }
-                        if(context.mounted) {
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Notification sent to Owner to verify payment! ✅"), backgroundColor: Colors.green));
-                        }
-                      },
-                      child: const Text("PAY NOW VIA UPI", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
-                  )
-              )
-            ] else ...[
-              const Text("Awesome! You are fully paid.", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)), const SizedBox(height: 20),
-              SizedBox(width: double.infinity, height: 50, child: OutlinedButton(style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24)), onPressed: () => Navigator.pop(context), child: const Text("Go Back")))
-            ]
-          ]
-          ),
+                                SizedBox(
+                                    width: double.infinity,
+                                    height: 50,
+                                    child: ElevatedButton(
+                                        style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.primaryOrange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                                        onPressed: () async {
+                                          int payingAmt = int.tryParse(payCtrl.text) ?? 0;
+                                          if(payingAmt <= 0) {
+                                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bhai valid amount toh daal! 🤦‍♂️")));
+                                            return;
+                                          }
+                                          if(payingAmt > pendingAmount) {
+                                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Pending dues se zyada amount kyu de raha hai bhai! 🛑")));
+                                            return;
+                                          }
+                                          if(ownerUpi.isEmpty || ownerUpi == "No UPI ID") {
+                                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Owner UPI not available!")));
+                                            return;
+                                          }
+
+                                          String upiUrl = "upi://pay?pa=$ownerUpi&pn=${Uri.encodeComponent(messName)}&tr=$messUid&am=$payingAmt&cu=INR";
+                                          String timeStr = DateFormat('hh:mm a').format(DateTime.now());
+
+                                          await FirebaseFirestore.instance.collection('users').doc(messUid).collection('recent_transactions').add({
+                                            'name': widget.studentData['name'] ?? "Student",
+                                            'uid': widget.studentUid,
+                                            'amount': payingAmt, // 🚀 Saves the Custom Amount
+                                            'type': 'Due Payment (Pending Verify)',
+                                            'time': timeStr,
+                                            'isPending': true,
+                                            'timestamp': FieldValue.serverTimestamp()
+                                          });
+
+                                          try {
+                                            await launchUrl(Uri.parse(upiUrl), mode: LaunchMode.externalApplication);
+                                          } catch (e) {
+                                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Could not open UPI app.")));
+                                          }
+
+                                          if(context.mounted) {
+                                            Navigator.pop(context);
+                                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payment request sent to Owner! ✅"), backgroundColor: Colors.green));
+                                          }
+                                        },
+                                        child: const Text("PAY NOW VIA UPI", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                                    )
+                                )
+                              ]
+                            ] else ...[
+                              const Text("Awesome! You are fully paid.", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 20),
+                              SizedBox(
+                                  width: double.infinity,
+                                  height: 50,
+                                  child: OutlinedButton(
+                                      style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24)),
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text("Go Back")
+                                  )
+                              )
+                            ]
+                          ]
+                      ),
+                    );
+                  }
+              );
+            }
         )
     );
   }
 
   void _handleRateMess(BuildContext context, String messUid) {
     int _rating = 5;
-    showModalBottomSheet(context: context, backgroundColor: BhojnTheme.surfaceCard, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))), builder: (context) => StatefulBuilder(builder: (context, setModalState) { return Padding(padding: const EdgeInsets.all(25.0), child: Column(mainAxisSize: MainAxisSize.min, children: [const Text("Rate Your Experience", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)), const SizedBox(height: 20), Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(5, (index) => IconButton(icon: Icon(index < _rating ? Icons.star_rounded : Icons.star_border_rounded, color: Colors.amber, size: 40), onPressed: () => setModalState(() => _rating = index + 1)))), const SizedBox(height: 20), SizedBox(width: double.infinity, height: 50, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.primaryOrange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))), onPressed: () async { await FirebaseFirestore.instance.collection('users').doc(messUid).collection('ratings').doc(widget.studentUid).set({'rating': _rating, 'timestamp': FieldValue.serverTimestamp()}); if(context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Thanks for rating! 🌟"), backgroundColor: Colors.green)); } }, child: const Text("SUBMIT RATING", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))))])); }));
+    showModalBottomSheet(
+        context: context,
+        backgroundColor: BhojnTheme.surfaceCard,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (context) => StatefulBuilder(
+            builder: (context, setModalState) {
+              return Padding(
+                  padding: const EdgeInsets.all(25.0),
+                  child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text("Rate Your Experience", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 20),
+                        Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(5, (index) => IconButton(
+                                icon: Icon(index < _rating ? Icons.star_rounded : Icons.star_border_rounded, color: Colors.amber, size: 40),
+                                onPressed: () => setModalState(() => _rating = index + 1)
+                            ))
+                        ),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.primaryOrange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                                onPressed: () async {
+                                  await FirebaseFirestore.instance.collection('users').doc(messUid).collection('ratings').doc(widget.studentUid).set({
+                                    'rating': _rating,
+                                    'timestamp': FieldValue.serverTimestamp()
+                                  });
+                                  if(context.mounted) {
+                                    Navigator.pop(context);
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Thanks for rating! 🌟"), backgroundColor: Colors.green));
+                                  }
+                                },
+                                child: const Text("SUBMIT RATING", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                            )
+                        )
+                      ]
+                  )
+              );
+            }
+        )
+    );
   }
 
   void _handleReportMess(BuildContext context, String messUid) {
-    TextEditingController _complaintCtrl = TextEditingController();
-    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: BhojnTheme.surfaceCard, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))), builder: (context) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 25, right: 25, top: 25), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [const Text("Report an Issue", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)), const SizedBox(height: 10), const Text("Your complaint will be sent directly to the owner anonymously.", style: TextStyle(color: Colors.grey, fontSize: 12)), const SizedBox(height: 20), TextField(controller: _complaintCtrl, maxLines: 4, style: const TextStyle(color: Colors.white), decoration: InputDecoration(hintText: "What went wrong?", filled: true, fillColor: Colors.white.withOpacity(0.05), border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))), const SizedBox(height: 20), SizedBox(width: double.infinity, height: 50, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))), onPressed: () async { if(_complaintCtrl.text.isEmpty) return; await FirebaseFirestore.instance.collection('users').doc(messUid).collection('complaints').add({'issue': _complaintCtrl.text.trim(), 'timestamp': FieldValue.serverTimestamp()}); if(context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Issue reported to owner! 🚨"), backgroundColor: Colors.orange)); } }, child: const Text("SEND REPORT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))), const SizedBox(height: 20), ])));
+    TextEditingController complaintCtrl = TextEditingController();
+    showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: BhojnTheme.surfaceCard,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (context) => Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 25, right: 25, top: 25),
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("Report an Issue", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  const Text("Your complaint will be sent directly to the owner anonymously.", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  const SizedBox(height: 20),
+                  TextField(
+                      controller: complaintCtrl,
+                      maxLines: 4,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                          hintText: "What went wrong?",
+                          filled: true,
+                          fillColor: Colors.white.withOpacity(0.05),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)
+                      )
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                          onPressed: () async {
+                            if(complaintCtrl.text.isEmpty) return;
+                            await FirebaseFirestore.instance.collection('users').doc(messUid).collection('complaints').add({
+                              'issue': complaintCtrl.text.trim(),
+                              'timestamp': FieldValue.serverTimestamp()
+                            });
+                            if(context.mounted) {
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Issue reported to owner! 🚨"), backgroundColor: Colors.orange));
+                            }
+                          },
+                          child: const Text("SEND REPORT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                      )
+                  ),
+                  const SizedBox(height: 20),
+                ]
+            )
+        )
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.activeMesses.isEmpty) {
+    if (widget.activeMesses.isEmpty || widget.selectedMessId == null) {
       return Center(
-          child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.restaurant_menu, size: 100, color: Colors.white.withOpacity(0.1)),
-                const SizedBox(height: 20),
-                const Text("No Mess Joined Yet!", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
-                const SizedBox(height: 10),
-                const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 40),
-                    child: Text("Go to Explore tab to find nearby messes, or tap the Scanner to join a mess directly.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey))
-                )
-              ]
-          )
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(Icons.restaurant_menu, size: 100, color: Colors.white.withOpacity(0.1)), const SizedBox(height: 20),
+            const Text("No Mess Joined Yet!", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)), const SizedBox(height: 10),
+            const Padding(padding: EdgeInsets.symmetric(horizontal: 40), child: Text("Go to Explore tab to find nearby messes, or tap the Scanner to join a mess directly.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)))
+          ])
       );
-    }
-
-    if (selectedMessId == null || !widget.activeMesses.contains(selectedMessId)) {
-      selectedMessId = widget.activeMesses.first;
     }
 
     return Column(
@@ -439,18 +620,10 @@ class _HomeTabState extends State<_HomeTab> {
               child: Row(
                 children: widget.activeMesses.map((mId) {
                   int idx = widget.activeMesses.indexOf(mId) + 1;
-                  bool isSel = mId == selectedMessId;
+                  bool isSel = mId == widget.selectedMessId;
                   return Padding(
                     padding: const EdgeInsets.only(right: 10),
-                    child: ChoiceChip(
-                      label: Text("Pass $idx", style: TextStyle(color: isSel ? Colors.white : Colors.grey, fontWeight: FontWeight.bold)),
-                      selected: isSel,
-                      selectedColor: BhojnTheme.primaryOrange,
-                      backgroundColor: Colors.white.withOpacity(0.05),
-                      onSelected: (val) {
-                        if (val) setState(() => selectedMessId = mId);
-                      },
-                    ),
+                    child: ChoiceChip(label: Text("Pass $idx", style: TextStyle(color: isSel ? Colors.white : Colors.grey, fontWeight: FontWeight.bold)), selected: isSel, selectedColor: BhojnTheme.primaryOrange, backgroundColor: Colors.white.withOpacity(0.05), onSelected: (val) { if (val) widget.onMessSwitched(mId); }),
                   );
                 }).toList(),
               ),
@@ -459,7 +632,7 @@ class _HomeTabState extends State<_HomeTab> {
 
         Expanded(
           child: StreamBuilder<DocumentSnapshot>(
-              stream: FirebaseFirestore.instance.collection('users').doc(selectedMessId).snapshots(),
+              stream: FirebaseFirestore.instance.collection('users').doc(widget.selectedMessId).snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: BhojnTheme.primaryOrange));
                 if (!snapshot.hasData || !snapshot.data!.exists) return const SizedBox();
@@ -476,29 +649,16 @@ class _HomeTabState extends State<_HomeTab> {
                 Map<String, dynamic> votingResults = messData['voting_results'] ?? {};
                 int totalVotes = votingResults.values.fold(0, (sum, val) => sum + (val as int));
 
-                // 🚀 BUG 1 FIX: Strictly Mess Specific Attendance Math!
-                Map<String, dynamic> strictState = _getMessSpecificData(selectedMessId!);
-
+                Map<String, dynamic> strictState = _getMessSpecificData(widget.selectedMessId!);
                 int totalAllotted = int.tryParse(strictState['total_allotted_meals']?.toString() ?? '60') ?? 60;
                 int rawRemaining = int.tryParse(strictState['remaining_meals']?.toString() ?? totalAllotted.toString()) ?? totalAllotted;
 
                 int remainingMeals = totalAllotted;
                 int scansDone = 0;
-
-                if (rawRemaining < 0) {
-                  scansDone = rawRemaining.abs();
-                  remainingMeals = totalAllotted - scansDone;
-                } else {
-                  remainingMeals = rawRemaining;
-                  scansDone = totalAllotted - remainingMeals;
-                }
-
-                // Strictly Clamp Boundaries
-                if (remainingMeals < 0) remainingMeals = 0;
-                if (remainingMeals > totalAllotted) remainingMeals = totalAllotted;
-                if (scansDone < 0) scansDone = 0;
-                if (scansDone > totalAllotted) scansDone = totalAllotted;
-
+                if (rawRemaining < 0) { scansDone = rawRemaining.abs(); remainingMeals = totalAllotted - scansDone; }
+                else { remainingMeals = rawRemaining; scansDone = totalAllotted - remainingMeals; }
+                if (remainingMeals < 0) remainingMeals = 0; if (remainingMeals > totalAllotted) remainingMeals = totalAllotted;
+                if (scansDone < 0) scansDone = 0; if (scansDone > totalAllotted) scansDone = totalAllotted;
                 double progress = totalAllotted > 0 ? (scansDone / totalAllotted).clamp(0.0, 1.0) : 0.0;
                 num pendingDueAmt = num.tryParse(strictState['pending_dues']?.toString() ?? '0') ?? 0;
 
@@ -507,153 +667,43 @@ class _HomeTabState extends State<_HomeTab> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 1. DIGITAL PASS & ATTENDANCE BAR
                       Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: [BhojnTheme.primaryOrange, BhojnTheme.primaryOrange.withOpacity(0.7)]),
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [BoxShadow(color: BhojnTheme.primaryOrange.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 5))],
-                        ),
+                        width: double.infinity, padding: const EdgeInsets.all(20), decoration: BoxDecoration(gradient: LinearGradient(colors: [BhojnTheme.primaryOrange, BhojnTheme.primaryOrange.withOpacity(0.7)]), borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: BhojnTheme.primaryOrange.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 5))]),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text("Digital Mess Pass", style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
-                                    Text(messName, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
-                                  ],
-                                ),
-                                const CircleAvatar(backgroundColor: Colors.white24, child: Icon(Icons.person, color: Colors.white)),
-                              ],
-                            ),
-                            const SizedBox(height: 20),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text("Scans Done: $scansDone/$totalAllotted", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                                Text("${(progress * 100).toInt()}%", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: LinearProgressIndicator(value: progress, minHeight: 10, backgroundColor: Colors.white24, color: Colors.white),
-                            ),
-                            const SizedBox(height: 10),
+                            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text("Digital Mess Pass", style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)), Text(messName, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900))]), const CircleAvatar(backgroundColor: Colors.white24, child: Icon(Icons.person, color: Colors.white))]), const SizedBox(height: 20),
+                            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text("Scans Done: $scansDone/$totalAllotted", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)), Text("${(progress * 100).toInt()}%", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]), const SizedBox(height: 8),
+                            ClipRRect(borderRadius: BorderRadius.circular(10), child: LinearProgressIndicator(value: progress, minHeight: 10, backgroundColor: Colors.white24, color: Colors.white)), const SizedBox(height: 10),
                             Text("Remaining: $remainingMeals meals", style: const TextStyle(color: Colors.white, fontSize: 12, fontStyle: FontStyle.italic)),
                           ],
                         ),
                       ),
-
                       const SizedBox(height: 25),
-
-                      // 2. ACTION GRID
                       Row(
                         children: [
-                          _buildActionBtn(context, "Due: ₹$pendingDueAmt", Icons.account_balance_wallet, Colors.redAccent, () => _handlePendingDues(context, messData, selectedMessId!, totalAllotted)),
-                          const SizedBox(width: 12),
-                          _buildActionBtn(context, "Rate Mess", Icons.star_rounded, Colors.amber, () => _handleRateMess(context, selectedMessId!)),
-                          const SizedBox(width: 12),
-                          _buildActionBtn(context, "Report", Icons.campaign_rounded, Colors.orange, () => _handleReportMess(context, selectedMessId!)),
+                          _buildActionBtn(context, "Due: ₹$pendingDueAmt", Icons.account_balance_wallet, Colors.redAccent, () => _handlePendingDues(context, messData, widget.selectedMessId!, totalAllotted)), const SizedBox(width: 12),
+                          _buildActionBtn(context, "Rate Mess", Icons.star_rounded, Colors.amber, () => _handleRateMess(context, widget.selectedMessId!)), const SizedBox(width: 12),
+                          _buildActionBtn(context, "Report", Icons.campaign_rounded, Colors.orange, () => _handleReportMess(context, widget.selectedMessId!)),
                         ],
                       ),
-
                       const SizedBox(height: 30),
-
-                      // 3. MENU CARD
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text("Today's Menu", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
-                            child: Text("Updated: $menuTime", style: const TextStyle(color: Colors.grey, fontSize: 10)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(15),
-                            border: Border.all(color: Colors.white10),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(Icons.restaurant, color: BhojnTheme.primaryOrange, size: 30),
-                              const SizedBox(height: 10),
-                              Text(todayMenu, style: const TextStyle(color: Colors.white, fontSize: 16, height: 1.6)),
-                            ],
-                          )
-                      ),
-
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("Today's Menu", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)), Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(8)), child: Text("Updated: $menuTime", style: const TextStyle(color: Colors.grey, fontSize: 10)))]), const SizedBox(height: 12),
+                      Container(width: double.infinity, padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.white10)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Icon(Icons.restaurant, color: BhojnTheme.primaryOrange, size: 30), const SizedBox(height: 10), Text(todayMenu, style: const TextStyle(color: Colors.white, fontSize: 16, height: 1.6))])),
                       const SizedBox(height: 30),
-
-                      // 4. FAIR & LIVE VOTING POLL 🗳️
                       if (isVotingActive && votingOptions.isNotEmpty) ...[
-                        const Text("Sunday Special Poll 🗳️", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                        const SizedBox(height: 12),
+                        const Text("Sunday Special Poll 🗳️", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)), const SizedBox(height: 12),
                         Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.08), borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.blueAccent.withOpacity(0.3))),
+                          padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.08), borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.blueAccent.withOpacity(0.3))),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               if (!hasVoted) ...[
-                                const Text("Cast your vote below (1 Vote per Student):", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                                const SizedBox(height: 10),
-                                ...votingOptions.map((option) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 8.0),
-                                  child: SizedBox(
-                                    width: double.infinity,
-                                    child: OutlinedButton(
-                                      style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                                      onPressed: () async {
-                                        await FirebaseFirestore.instance.collection('users').doc(selectedMessId).update({
-                                          'voting_results.$option': FieldValue.increment(1),
-                                          'voted_by': FieldValue.arrayUnion([widget.studentUid])
-                                        });
-                                        if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Voted for $option! ✅"), backgroundColor: Colors.green));
-                                      },
-                                      child: Text(option.toString()),
-                                    ),
-                                  ),
-                                )).toList(),
+                                const Text("Cast your vote below (1 Vote per Student):", style: TextStyle(color: Colors.grey, fontSize: 12)), const SizedBox(height: 10),
+                                ...votingOptions.map((option) => Padding(padding: const EdgeInsets.only(bottom: 8.0), child: SizedBox(width: double.infinity, child: OutlinedButton(style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), onPressed: () async { await FirebaseFirestore.instance.collection('users').doc(widget.selectedMessId).update({'voting_results.$option': FieldValue.increment(1), 'voted_by': FieldValue.arrayUnion([widget.studentUid])}); if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Voted for $option! ✅"), backgroundColor: Colors.green)); }, child: Text(option.toString()))))).toList(),
                               ] else ...[
-                                const Text("Live Results (You have voted!):", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 15),
-                                ...votingResults.entries.map((entry) {
-                                  double votePercent = totalVotes > 0 ? entry.value / totalVotes : 0.0;
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 12.0),
-                                    child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                              children: [
-                                                Text(entry.key, style: const TextStyle(color: Colors.white)),
-                                                Text("${entry.value} votes", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12))
-                                              ]
-                                          ),
-                                          const SizedBox(height: 6),
-                                          ClipRRect(borderRadius: BorderRadius.circular(5), child: LinearProgressIndicator(value: votePercent, minHeight: 8, backgroundColor: Colors.white10, color: Colors.blueAccent))
-                                        ]
-                                    ),
-                                  );
-                                }).toList(),
-                                const SizedBox(height: 10),
-                                Text("Total Votes: $totalVotes (Poll auto-expires in 7 days)", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                                const Text("Live Results (You have voted!):", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)), const SizedBox(height: 15),
+                                ...votingResults.entries.map((entry) { double votePercent = totalVotes > 0 ? entry.value / totalVotes : 0.0; return Padding(padding: const EdgeInsets.only(bottom: 12.0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(entry.key, style: const TextStyle(color: Colors.white)), Text("${entry.value} votes", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12))]), const SizedBox(height: 6), ClipRRect(borderRadius: BorderRadius.circular(5), child: LinearProgressIndicator(value: votePercent, minHeight: 8, backgroundColor: Colors.white10, color: Colors.blueAccent))])); }).toList(), const SizedBox(height: 10), Text("Total Votes: $totalVotes (Poll auto-expires in 7 days)", style: const TextStyle(color: Colors.grey, fontSize: 11)),
                               ]
                             ],
                           ),
@@ -672,22 +722,10 @@ class _HomeTabState extends State<_HomeTab> {
   Widget _buildActionBtn(BuildContext context, String title, IconData icon, Color color, VoidCallback onTap) {
     return Expanded(
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(15),
+        onTap: onTap, borderRadius: BorderRadius.circular(15),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 15),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Column(
-            children: [
-              Icon(icon, color: color, size: 28),
-              const SizedBox(height: 8),
-              Text(title, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-            ],
-          ),
+          padding: const EdgeInsets.symmetric(vertical: 15), decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.white10)),
+          child: Column(children: [Icon(icon, color: color, size: 28), const SizedBox(height: 8), Text(title, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))]),
         ),
       ),
     );
@@ -695,78 +733,144 @@ class _HomeTabState extends State<_HomeTab> {
 }
 
 // ============================================================================
-// 🌍 2. EXPLORE TAB (Unchanged)
+// 🌍 2. EXPLORE TAB
 // ============================================================================
 class _ExploreTab extends StatefulWidget {
   const _ExploreTab();
-  @override State<_ExploreTab> createState() => _ExploreTabState();
+  @override
+  State<_ExploreTab> createState() => _ExploreTabState();
 }
 
 class _ExploreTabState extends State<_ExploreTab> {
   String searchQuery = "";
+  bool showOnlyOpen = false;
+  bool showWithin3Km = false;
+  final double studentLat = 18.5204;
+  final double studentLng = 73.8567;
+
+  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    if (lat1 == 0 || lon1 == 0 || lat2 == 0 || lon2 == 0) return 0.0;
+    var p = 0.017453292519943295;
+    var c = cos;
+    var a = 0.5 - c((lat2 - lat1) * p)/2 + c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p))/2;
+    return 12742 * asin(sqrt(a));
+  }
 
   void _openJoinRequestForm(BuildContext context, Map<String, dynamic> messData, String messUid) {
     int priceMonthly = int.tryParse(messData['price_monthly']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '0') ?? 0;
     int price15Days = int.tryParse(messData['price_15days']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '0') ?? 0;
-
     int selectedPlanPrice = priceMonthly;
     int allocatedMeals = 60;
-    TextEditingController _paidAmountCtrl = TextEditingController();
+    TextEditingController paidAmountCtrl = TextEditingController();
 
     showModalBottomSheet(
-        context: context, isScrollControlled: true, backgroundColor: BhojnTheme.surfaceCard, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: BhojnTheme.surfaceCard,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
         builder: (context) => StatefulBuilder(
             builder: (context, setModalState) {
-              int paidAmount = int.tryParse(_paidAmountCtrl.text) ?? 0;
+              int paidAmount = int.tryParse(paidAmountCtrl.text) ?? 0;
               int pendingDue = selectedPlanPrice - paidAmount;
 
               return Padding(
                 padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 25, right: 25, top: 25),
                 child: Column(
-                    mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text("Join Mess Request", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)), const SizedBox(height: 5),
-                      const Text("Select a plan and enter the amount you have already paid to the owner offline or via UPI.", style: TextStyle(color: Colors.grey, fontSize: 12)), const SizedBox(height: 20),
+                      const Text("Join Mess Request", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 5),
+                      const Text("Select a plan and enter the amount you have already paid offline/UPI.", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                      const SizedBox(height: 20),
 
-                      const Text("Select Plan", style: TextStyle(color: Colors.white70, fontSize: 12)), const SizedBox(height: 10),
-                      Row(children: [
-                        Expanded(child: ChoiceChip(label: Text("15 Days (₹$price15Days)", style: const TextStyle(fontSize: 12)), selected: selectedPlanPrice == price15Days, onSelected: (val) { setModalState(() { selectedPlanPrice = price15Days; allocatedMeals = 30; }); }, selectedColor: BhojnTheme.primaryOrange, backgroundColor: Colors.white10)), const SizedBox(width: 10),
-                        Expanded(child: ChoiceChip(label: Text("Monthly (₹$priceMonthly)", style: const TextStyle(fontSize: 12)), selected: selectedPlanPrice == priceMonthly, onSelected: (val) { setModalState(() { selectedPlanPrice = priceMonthly; allocatedMeals = 60; }); }, selectedColor: BhojnTheme.primaryOrange, backgroundColor: Colors.white10)),
-                      ]), const SizedBox(height: 20),
+                      const Text("Select Plan", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                      const SizedBox(height: 10),
+                      Row(
+                          children: [
+                            Expanded(
+                                child: ChoiceChip(
+                                    label: Text("15 Days (₹$price15Days)", style: const TextStyle(fontSize: 12)),
+                                    selected: selectedPlanPrice == price15Days,
+                                    onSelected: (val) { setModalState(() { selectedPlanPrice = price15Days; allocatedMeals = 30; }); },
+                                    selectedColor: BhojnTheme.primaryOrange,
+                                    backgroundColor: Colors.white10
+                                )
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                                child: ChoiceChip(
+                                    label: Text("Monthly (₹$priceMonthly)", style: const TextStyle(fontSize: 12)),
+                                    selected: selectedPlanPrice == priceMonthly,
+                                    onSelected: (val) { setModalState(() { selectedPlanPrice = priceMonthly; allocatedMeals = 60; }); },
+                                    selectedColor: BhojnTheme.primaryOrange,
+                                    backgroundColor: Colors.white10
+                                )
+                            )
+                          ]
+                      ),
+                      const SizedBox(height: 20),
 
-                      const Text("Amount You Paid (₹)", style: TextStyle(color: Colors.white70, fontSize: 12)), const SizedBox(height: 5),
+                      const Text("Amount You Paid (₹)", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                      const SizedBox(height: 5),
                       TextField(
-                          controller: _paidAmountCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                          controller: paidAmountCtrl,
+                          keyboardType: TextInputType.number,
+                          style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
                           onChanged: (val) => setModalState((){}),
-                          decoration: InputDecoration(prefixIcon: const Icon(Icons.currency_rupee, color: Colors.white70), filled: true, fillColor: Colors.white.withOpacity(0.05), border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none))
-                      ), const SizedBox(height: 15),
+                          decoration: InputDecoration(
+                              prefixIcon: const Icon(Icons.currency_rupee, color: Colors.white70),
+                              filled: true,
+                              fillColor: Colors.white.withOpacity(0.05),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)
+                          )
+                      ),
+                      const SizedBox(height: 15),
 
                       Container(
-                          padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: pendingDue > 0 ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-                          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                            Text("Auto-Calculated Dues:", style: TextStyle(color: pendingDue > 0 ? Colors.redAccent : Colors.green, fontWeight: FontWeight.bold)),
-                            Text("₹ $pendingDue", style: TextStyle(color: pendingDue > 0 ? Colors.redAccent : Colors.green, fontSize: 18, fontWeight: FontWeight.w900))
-                          ])
-                      ), const SizedBox(height: 25),
+                          padding: const EdgeInsets.all(15),
+                          decoration: BoxDecoration(
+                              color: pendingDue > 0 ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10)
+                          ),
+                          child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text("Auto-Calculated Dues:", style: TextStyle(color: pendingDue > 0 ? Colors.redAccent : Colors.green, fontWeight: FontWeight.bold)),
+                                Text("₹ $pendingDue", style: TextStyle(color: pendingDue > 0 ? Colors.redAccent : Colors.green, fontSize: 18, fontWeight: FontWeight.w900))
+                              ]
+                          )
+                      ),
+                      const SizedBox(height: 25),
 
                       SizedBox(
-                          width: double.infinity, height: 50,
+                          width: double.infinity,
+                          height: 50,
                           child: ElevatedButton(
                               style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.primaryOrange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                               onPressed: () async {
                                 final user = FirebaseAuth.instance.currentUser;
                                 if(user != null) {
                                   await FirebaseFirestore.instance.collection('users').doc(messUid).collection('join_requests').doc(user.uid).set({
-                                    'student_name': user.displayName ?? 'Student', 'student_uid': user.uid,
-                                    'paid_amount': paidAmount, 'pending_dues': pendingDue, 'total_allotted_meals': allocatedMeals,
-                                    'status': 'Pending', 'timestamp': FieldValue.serverTimestamp()
+                                    'student_name': user.displayName ?? 'Student',
+                                    'student_uid': user.uid,
+                                    'paid_amount': paidAmount,
+                                    'pending_dues': pendingDue,
+                                    'total_allotted_meals': allocatedMeals,
+                                    'status': 'Pending',
+                                    'timestamp': FieldValue.serverTimestamp()
                                   });
-                                  if (context.mounted) { Navigator.pop(context); Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request & Payment Details Sent to Owner! 🚀"), backgroundColor: Colors.green)); }
+                                  if (context.mounted) {
+                                    Navigator.pop(context);
+                                    Navigator.pop(context);
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request Sent to Owner! 🚀"), backgroundColor: Colors.green));
+                                  }
                                 }
                               },
-                              child: const Text("SEND REQUEST TO OWNER", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                              child: const Text("SEND REQUEST", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
                           )
-                      ), const SizedBox(height: 20),
+                      ),
+                      const SizedBox(height: 20),
                     ]
                 ),
               );
@@ -782,6 +886,7 @@ class _ExploreTabState extends State<_ExploreTab> {
     String holiday = messData['weekly_holiday'] ?? "None";
     String contact = messData['mobile'] ?? "Not available";
     String address = messData['address'] ?? "Address not provided";
+    List<dynamic> photos = messData['photos'] ?? [];
 
     showModalBottomSheet(
         context: context,
@@ -799,6 +904,7 @@ class _ExploreTabState extends State<_ExploreTab> {
                 children: [
                   Center(child: Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(10)))),
                   const SizedBox(height: 20),
+
                   Row(
                       children: [
                         const CircleAvatar(radius: 30, backgroundColor: Colors.white10, child: Icon(Icons.restaurant, color: BhojnTheme.primaryOrange, size: 30)),
@@ -815,6 +921,39 @@ class _ExploreTabState extends State<_ExploreTab> {
                       ]
                   ),
                   const SizedBox(height: 25),
+
+                  const Text("Mess Photos 📸", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+
+                  if (photos.isNotEmpty)
+                    SizedBox(
+                        height: 120,
+                        child: ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: photos.length,
+                            itemBuilder: (context, index) {
+                              return Container(
+                                  margin: const EdgeInsets.only(right: 12),
+                                  width: 160,
+                                  decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(15),
+                                      image: DecorationImage(image: NetworkImage(photos[index]), fit: BoxFit.cover)
+                                  )
+                              );
+                            }
+                        )
+                    )
+                  else
+                    Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(15),
+                        decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
+                        child: const Center(
+                            child: Text("Owner hasn't uploaded any photos yet.", style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic, fontSize: 12))
+                        )
+                    ),
+                  const SizedBox(height: 25),
+
                   Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -823,37 +962,38 @@ class _ExploreTabState extends State<_ExploreTab> {
                       ]
                   ),
                   const SizedBox(height: 10),
+
                   Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(15),
-                      decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(15), border: Border.all(color: Colors.green.withOpacity(0.3))),
+                      decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(color: Colors.green.withOpacity(0.3))
+                      ),
                       child: Text(todayMenu, style: const TextStyle(color: Colors.green, fontSize: 14))
                   ),
                   const SizedBox(height: 20),
+
                   const Text("Contact Info", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 10),
+
                   ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.phone, color: Colors.grey), title: Text("+91 $contact", style: const TextStyle(color: Colors.white70))),
                   ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.location_on, color: Colors.grey), title: Text(address, style: const TextStyle(color: Colors.white70))),
                   const SizedBox(height: 30),
+
                   SizedBox(
                       width: double.infinity,
                       height: 50,
                       child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(foregroundColor: BhojnTheme.primaryOrange, side: const BorderSide(color: BhojnTheme.primaryOrange), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                          style: OutlinedButton.styleFrom(
+                              foregroundColor: BhojnTheme.primaryOrange,
+                              side: const BorderSide(color: BhojnTheme.primaryOrange),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                          ),
                           icon: const Icon(Icons.person_add, color: BhojnTheme.primaryOrange),
-                          label: const Text("Request to Join Mess (Enter Details)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          label: const Text("Request to Join Mess", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                           onPressed: () => _openJoinRequestForm(context, messData, messUid)
-                      )
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.primaryOrange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                          icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
-                          label: const Text("Use Scanner to Pay & Join", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                          onPressed: () => Navigator.pop(context)
                       )
                   ),
                   const SizedBox(height: 10),
@@ -874,6 +1014,7 @@ class _ExploreTabState extends State<_ExploreTab> {
               padding: EdgeInsets.only(left: 20, top: 10, bottom: 5),
               child: Text("Explore Messes 🌍", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white))
           ),
+
           Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               child: TextField(
@@ -890,6 +1031,39 @@ class _ExploreTabState extends State<_ExploreTab> {
                   )
               )
           ),
+
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+            child: Row(
+              children: [
+                FilterChip(
+                    label: const Text("Open Now", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    selected: showOnlyOpen,
+                    selectedColor: Colors.green.withOpacity(0.3),
+                    checkmarkColor: Colors.green,
+                    backgroundColor: Colors.white.withOpacity(0.05),
+                    labelStyle: TextStyle(color: showOnlyOpen ? Colors.green : Colors.grey),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    side: BorderSide.none,
+                    onSelected: (bool value) { setState(() { showOnlyOpen = value; }); }
+                ),
+                const SizedBox(width: 10),
+                FilterChip(
+                    label: const Text("Within 3 KM", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    selected: showWithin3Km,
+                    selectedColor: BhojnTheme.primaryOrange.withOpacity(0.3),
+                    checkmarkColor: BhojnTheme.primaryOrange,
+                    backgroundColor: Colors.white.withOpacity(0.05),
+                    labelStyle: TextStyle(color: showWithin3Km ? BhojnTheme.primaryOrange : Colors.grey),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    side: BorderSide.none,
+                    onSelected: (bool value) { setState(() { showWithin3Km = value; }); }
+                ),
+              ],
+            ),
+          ),
+
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'owner').snapshots(),
@@ -900,11 +1074,21 @@ class _ExploreTabState extends State<_ExploreTab> {
                 var messes = snapshot.data!.docs.where((doc) {
                   var data = doc.data() as Map<String, dynamic>;
                   if (data['is_visible'] == false) return false;
+
+                  bool isOpen = data['is_open'] ?? true;
+                  if (showOnlyOpen && !isOpen) return false;
+
+                  double lat = double.tryParse(data['lat']?.toString() ?? '0') ?? 0.0;
+                  double lng = double.tryParse(data['lng']?.toString() ?? '0') ?? 0.0;
+                  double distance = _calculateDistance(studentLat, studentLng, lat, lng);
+
+                  if (showWithin3Km && (distance > 3.0 || distance == 0.0)) return false;
+
                   var name = (data['mess_name'] ?? "").toString().toLowerCase();
                   return name.contains(searchQuery);
                 }).toList();
 
-                if (messes.isEmpty) return const Center(child: Text("No matches.", style: TextStyle(color: Colors.grey)));
+                if (messes.isEmpty) return const Center(child: Text("No matches found based on your filters.", style: TextStyle(color: Colors.grey)));
 
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -916,31 +1100,66 @@ class _ExploreTabState extends State<_ExploreTab> {
                     String priceThali = messData['price_thali'] ?? "N/A";
                     String priceMonthly = messData['price_monthly'] ?? "N/A";
                     bool isOpen = messData['is_open'] ?? true;
-                    double lat = messData['lat'] ?? 0.0;
-                    double lng = messData['lng'] ?? 0.0;
+
+                    double lat = double.tryParse(messData['lat']?.toString() ?? '0') ?? 0.0;
+                    double lng = double.tryParse(messData['lng']?.toString() ?? '0') ?? 0.0;
+                    double dist = _calculateDistance(studentLat, studentLng, lat, lng);
+                    String distanceStr = dist > 0 ? "${dist.toStringAsFixed(1)} KM" : "Distance Unknown";
 
                     return Card(
                         color: Colors.white.withOpacity(0.05),
                         margin: const EdgeInsets.only(bottom: 15),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                        child: ExpansionTile(
-                            iconColor: BhojnTheme.primaryOrange,
-                            collapsedIconColor: Colors.grey,
-                            title: Text(messName, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18)),
-                            subtitle: Text(isOpen ? "Status: OPEN" : "Status: CLOSED", style: TextStyle(color: isOpen ? Colors.green : Colors.red, fontSize: 12, fontWeight: FontWeight.bold)),
-                            children: [
-                              Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
-                                  child: Column(
-                                      children: [
-                                        Row(children: [const Icon(Icons.location_on, color: Colors.grey, size: 16), const SizedBox(width: 5), Expanded(child: Text("Lat: $lat, Lng: $lng", style: const TextStyle(color: Colors.grey, fontSize: 12))), IconButton(icon: const Icon(Icons.copy, color: BhojnTheme.primaryOrange, size: 16), onPressed: () { Clipboard.setData(ClipboardData(text: "$lat, $lng")); })]),
-                                        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [_rateBox("Thali", "₹$priceThali"), _rateBox("Monthly", "₹$priceMonthly")]),
-                                        const SizedBox(height: 15),
-                                        SizedBox(width: double.infinity, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.primaryOrange.withOpacity(0.2), foregroundColor: BhojnTheme.primaryOrange), onPressed: () => _showMessFullDetails(context, messData, messDoc.id), child: const Text("View More Info")))
-                                      ]
+                        child: Theme(
+                          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                          child: ExpansionTile(
+                              tilePadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
+                              iconColor: BhojnTheme.primaryOrange,
+                              collapsedIconColor: Colors.grey,
+                              title: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(child: Text(messName, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16))),
+                                  Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8)),
+                                      child: Row(
+                                          children: [
+                                            const Icon(Icons.near_me, size: 10, color: BhojnTheme.primaryOrange),
+                                            const SizedBox(width: 4),
+                                            Text(distanceStr, style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold))
+                                          ]
+                                      )
                                   )
-                              )
-                            ]
+                                ],
+                              ),
+                              subtitle: Text(isOpen ? "Status: OPEN" : "Status: CLOSED", style: TextStyle(color: isOpen ? Colors.green : Colors.red, fontSize: 12, fontWeight: FontWeight.bold)),
+                              children: [
+                                Padding(
+                                    padding: const EdgeInsets.only(left: 15, right: 15, bottom: 15),
+                                    child: Column(
+                                        children: [
+                                          Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                _rateBox("Thali", "₹$priceThali"),
+                                                _rateBox("Monthly", "₹$priceMonthly")
+                                              ]
+                                          ),
+                                          const SizedBox(height: 15),
+                                          SizedBox(
+                                              width: double.infinity,
+                                              child: ElevatedButton(
+                                                  style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.primaryOrange.withOpacity(0.2), foregroundColor: BhojnTheme.primaryOrange, elevation: 0),
+                                                  onPressed: () => _showMessFullDetails(context, messData, messDoc.id),
+                                                  child: const Text("View More Info")
+                                              )
+                                          )
+                                        ]
+                                    )
+                                )
+                              ]
+                          ),
                         )
                     );
                   },
@@ -952,16 +1171,30 @@ class _ExploreTabState extends State<_ExploreTab> {
     );
   }
 
-  Widget _rateBox(String title, String price) => Column(children: [Text(title, style: const TextStyle(color: Colors.grey, fontSize: 11)), Text(price, style: const TextStyle(color: BhojnTheme.primaryOrange, fontWeight: FontWeight.bold))]);
-}
-
-class _HostelsTab extends StatelessWidget {
-  const _HostelsTab();
-  @override Widget build(BuildContext context) => const Center(child: Text("Coming Soon", style: TextStyle(color: Colors.grey)));
+  Widget _rateBox(String title, String price) {
+    return Column(
+        children: [
+          Text(title, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+          Text(price, style: const TextStyle(color: BhojnTheme.primaryOrange, fontWeight: FontWeight.bold))
+        ]
+    );
+  }
 }
 
 // ============================================================================
-// 👤 4. ME TAB (🚀 BUG 3 FIX: Grouped History UI with Noticeable Gaps)
+// 🏢 3. HOSTELS TAB
+// ============================================================================
+class _HostelsTab extends StatelessWidget {
+  const _HostelsTab({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(child: Text("Coming Soon", style: TextStyle(color: Colors.grey)));
+  }
+}
+
+// ============================================================================
+// 👤 4. ME TAB
 // ============================================================================
 class _MeTab extends StatefulWidget {
   final List<String> activeMesses;
@@ -969,7 +1202,12 @@ class _MeTab extends StatefulWidget {
   final AuthService auth;
   final String uid;
 
-  const _MeTab({required this.activeMesses, required this.studentData, required this.auth, required this.uid});
+  const _MeTab({
+    required this.activeMesses,
+    required this.studentData,
+    required this.auth,
+    required this.uid
+  });
 
   @override
   State<_MeTab> createState() => _MeTabState();
@@ -987,6 +1225,8 @@ class _MeTabState extends State<_MeTab> {
   }
 
   void _showAttendanceHistory(BuildContext context) {
+    String validMessId = selectedHistoryMessId ?? "unknown";
+
     showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -1001,60 +1241,58 @@ class _MeTabState extends State<_MeTab> {
                     maxChildSize: 0.95,
                     expand: false,
                     builder: (_, controller) {
-                      return Column(
-                          children: [
-                            const SizedBox(height: 15),
-                            Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(10))),
-                            const SizedBox(height: 20),
-                            const Text("My Attendance & Scans 🍛", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                      return StreamBuilder<DocumentSnapshot>(
+                          stream: FirebaseFirestore.instance.collection('users').doc(validMessId).snapshots(),
+                          builder: (context, messSnap) {
+                            String mName = "Loading...";
+                            if (messSnap.hasData && messSnap.data != null && messSnap.data!.exists) {
+                              var mData = messSnap.data!.data() as Map<String, dynamic>?;
+                              mName = mData?['mess_name'] ?? "Mess";
+                            }
 
-                            // 🚀 History Mess Switcher
-                            if (widget.activeMesses.length > 1)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                                child: SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(
-                                    children: widget.activeMesses.map((mId) {
-                                      int idx = widget.activeMesses.indexOf(mId) + 1;
-                                      bool isSel = mId == selectedHistoryMessId;
-                                      return Padding(
-                                        padding: const EdgeInsets.only(right: 10),
-                                        child: ChoiceChip(
-                                          label: Text("Pass $idx", style: TextStyle(color: isSel ? Colors.white : Colors.grey, fontWeight: FontWeight.bold)),
-                                          selected: isSel,
-                                          selectedColor: BhojnTheme.primaryOrange,
-                                          backgroundColor: Colors.white.withOpacity(0.05),
-                                          onSelected: (val) {
-                                            if (val) {
-                                              setModalState(() { selectedHistoryMessId = mId; });
-                                            }
-                                          },
-                                        ),
-                                      );
-                                    }).toList(),
-                                  ),
-                                ),
-                              ),
-                            const SizedBox(height: 10),
+                            return Column(
+                                children: [
+                                  const SizedBox(height: 15),
+                                  Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(10))),
+                                  const SizedBox(height: 20),
 
-                            Expanded(
-                              child: StreamBuilder<DocumentSnapshot>(
-                                  stream: FirebaseFirestore.instance.collection('users').doc(selectedHistoryMessId).snapshots(),
-                                  builder: (context, messSnap) {
-                                    String mName = "Mess";
-                                    if (messSnap.hasData && messSnap.data != null && messSnap.data!.exists) {
-                                      var mData = messSnap.data!.data() as Map<String, dynamic>?;
-                                      mName = mData?['mess_name'] ?? "Mess";
-                                    }
+                                  Text("Attendance: $mName 🍛", style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
 
-                                    return StreamBuilder<QuerySnapshot>(
+                                  if (widget.activeMesses.length > 1)
+                                    Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                        child: SingleChildScrollView(
+                                            scrollDirection: Axis.horizontal,
+                                            child: Row(
+                                                children: widget.activeMesses.map((mId) {
+                                                  int idx = widget.activeMesses.indexOf(mId) + 1;
+                                                  bool isSel = mId == selectedHistoryMessId;
+                                                  return Padding(
+                                                      padding: const EdgeInsets.only(right: 10),
+                                                      child: ChoiceChip(
+                                                          label: Text("Pass $idx", style: TextStyle(color: isSel ? Colors.white : Colors.grey, fontWeight: FontWeight.bold)),
+                                                          selected: isSel,
+                                                          selectedColor: BhojnTheme.primaryOrange,
+                                                          backgroundColor: Colors.white.withOpacity(0.05),
+                                                          onSelected: (val) {
+                                                            if (val) setModalState(() { selectedHistoryMessId = mId; validMessId = mId; });
+                                                          }
+                                                      )
+                                                  );
+                                                }).toList()
+                                            )
+                                        )
+                                    ),
+
+                                  const SizedBox(height: 10),
+
+                                  Expanded(
+                                    child: StreamBuilder<QuerySnapshot>(
                                         stream: FirebaseFirestore.instance.collection('users').doc(widget.uid).collection('my_transactions').orderBy('timestamp', descending: true).snapshots(),
                                         builder: (context, snapshot) {
                                           if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: BhojnTheme.primaryOrange));
                                           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const Center(child: Text("No meal history found.", style: TextStyle(color: Colors.grey)));
 
-                                          // Filter exactly for selected mess
                                           var docs = snapshot.data!.docs.where((doc) {
                                             var data = doc.data() as Map<String, dynamic>;
                                             return data['mess_name'] == mName || data['mess_id'] == selectedHistoryMessId;
@@ -1062,7 +1300,6 @@ class _MeTabState extends State<_MeTab> {
 
                                           if (docs.isEmpty) return const Center(child: Text("No history for this mess.", style: TextStyle(color: Colors.grey)));
 
-                                          // 🚀 Group by Date Logic
                                           Map<String, List<Map<String, dynamic>>> groupedData = {};
                                           for(var d in docs) {
                                             var map = d.data() as Map<String, dynamic>;
@@ -1083,39 +1320,34 @@ class _MeTabState extends State<_MeTab> {
                                               return Column(
                                                 crossAxisAlignment: CrossAxisAlignment.start,
                                                 children: [
-                                                  // 🚀 BUG 3 FIX: Premium Timeline Divider with Date
                                                   Padding(
-                                                    padding: const EdgeInsets.only(top: 25, bottom: 15),
-                                                    child: Row(
-                                                      children: [
-                                                        Container(
-                                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                                            decoration: BoxDecoration(
-                                                                color: BhojnTheme.primaryOrange.withOpacity(0.1),
-                                                                borderRadius: BorderRadius.circular(20),
-                                                                border: Border.all(color: BhojnTheme.primaryOrange.withOpacity(0.3))
+                                                      padding: const EdgeInsets.only(top: 25, bottom: 15),
+                                                      child: Row(
+                                                          children: [
+                                                            Container(
+                                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                                                decoration: BoxDecoration(color: BhojnTheme.primaryOrange.withOpacity(0.1), borderRadius: BorderRadius.circular(20), border: Border.all(color: BhojnTheme.primaryOrange.withOpacity(0.3))),
+                                                                child: Row(
+                                                                    mainAxisSize: MainAxisSize.min,
+                                                                    children: [
+                                                                      const Icon(Icons.calendar_month, size: 14, color: BhojnTheme.primaryOrange),
+                                                                      const SizedBox(width: 8),
+                                                                      Text(dateKey, style: const TextStyle(color: BhojnTheme.primaryOrange, fontWeight: FontWeight.bold, fontSize: 13))
+                                                                    ]
+                                                                )
                                                             ),
-                                                            child: Row(
-                                                              mainAxisSize: MainAxisSize.min,
-                                                              children: [
-                                                                const Icon(Icons.calendar_month, size: 14, color: BhojnTheme.primaryOrange),
-                                                                const SizedBox(width: 8),
-                                                                Text(dateKey, style: const TextStyle(color: BhojnTheme.primaryOrange, fontWeight: FontWeight.bold, fontSize: 13)),
-                                                              ],
-                                                            )
-                                                        ),
-                                                        const Expanded(child: Divider(color: Colors.white10, indent: 15)),
-                                                      ],
-                                                    ),
+                                                            const Expanded(child: Divider(color: Colors.white10, indent: 15))
+                                                          ]
+                                                      )
                                                   ),
+
                                                   ...items.map((doc) {
                                                     String type = doc['type'] ?? "Attendance";
                                                     String time = doc['time'] ?? "--:--";
                                                     int amt = doc['amount'] ?? 0;
                                                     bool isPending = doc['isPending'] ?? false;
-
-                                                    // 🚀 Dynamic Auto-Confirm Status if Join is accepted!
                                                     String statusStr = isPending ? "(Pending Verify)" : "Confirmed";
+
                                                     if (type.contains("Join") && widget.activeMesses.contains(selectedHistoryMessId)) {
                                                       isPending = false;
                                                       statusStr = "Confirmed ✅";
@@ -1140,11 +1372,11 @@ class _MeTabState extends State<_MeTab> {
                                             },
                                           );
                                         }
-                                    );
-                                  }
-                              ),
-                            )
-                          ]
+                                    ),
+                                  )
+                                ]
+                            );
+                          }
                       );
                     }
                 );
@@ -1158,17 +1390,17 @@ class _MeTabState extends State<_MeTab> {
     showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          backgroundColor: BhojnTheme.surfaceCard,
-          title: const Text("Logout?", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          content: const Text("Are you sure you want to logout of your account?", style: TextStyle(color: Colors.grey)),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: Colors.white70))),
-            ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.primaryOrange),
-                onPressed: () { Navigator.pop(context); widget.auth.logout(); },
-                child: const Text("Yes, Logout", style: TextStyle(color: Colors.white))
-            )
-          ],
+            backgroundColor: BhojnTheme.surfaceCard,
+            title: const Text("Logout?", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            content: const Text("Are you sure you want to logout of your account?", style: TextStyle(color: Colors.grey)),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: Colors.white70))),
+              ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.primaryOrange),
+                  onPressed: () { Navigator.pop(context); widget.auth.logout(); },
+                  child: const Text("Yes, Logout", style: TextStyle(color: Colors.white))
+              )
+            ]
         )
     );
   }
@@ -1179,24 +1411,38 @@ class _MeTabState extends State<_MeTab> {
         builder: (context) => AlertDialog(
           backgroundColor: BhojnTheme.surfaceCard,
           title: const Text("Delete Profile? ⚠️", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-          content: const Text("This action cannot be undone. All your history, scans, and details will be permanently deleted from the cloud.", style: TextStyle(color: Colors.grey)),
+          content: const Text("For security reasons, only authenticated owners of this account can delete it. This will permanently erase your history and passes from our secure cloud.", style: TextStyle(color: Colors.grey)),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: Colors.white70))),
             ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
                 onPressed: () async {
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Deleting Profile Data... 🗑️")));
+                  showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.redAccent)));
+
                   try {
-                    String uid = FirebaseAuth.instance.currentUser!.uid;
-                    await FirebaseFirestore.instance.collection('users').doc(uid).delete();
-                    await FirebaseAuth.instance.currentUser!.delete();
-                    await widget.auth.logout();
+                    User? user = FirebaseAuth.instance.currentUser;
+                    if (user != null) {
+                      String uid = user.uid;
+                      await FirebaseFirestore.instance.collection('users').doc(uid).delete();
+                      await user.delete();
+                      await widget.auth.logout();
+                      if (context.mounted) Navigator.pop(context);
+                    }
+                  } on FirebaseAuthException catch(e) {
+                    if (context.mounted) Navigator.pop(context);
+
+                    if (e.code == 'requires-recent-login') {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Security Check: Session expired. Please log out and log in again to verify your identity before deleting! 🔒"), backgroundColor: Colors.orange, duration: Duration(seconds: 4)));
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: ${e.message}")));
+                    }
                   } catch(e) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Security Error: Please re-login and try again to delete account.")));
+                    if (context.mounted) Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("An error occurred while deleting.")));
                   }
                 },
-                child: const Text("Permanently Delete", style: TextStyle(color: Colors.white))
+                child: const Text("Verify & Delete", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
             )
           ],
         )
@@ -1236,6 +1482,7 @@ class _MeTabState extends State<_MeTab> {
 
               const Text("My Food Journey 🍛", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
               const SizedBox(height: 15),
+
               ListTile(
                   onTap: () => _showAttendanceHistory(context),
                   tileColor: Colors.white.withOpacity(0.05),
@@ -1249,6 +1496,7 @@ class _MeTabState extends State<_MeTab> {
 
               const Text("Settings ⚙️", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
               const SizedBox(height: 15),
+
               Container(
                   decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
                   child: Column(
@@ -1267,8 +1515,10 @@ class _MeTabState extends State<_MeTab> {
                             leading: const Icon(Icons.help_outline, color: Colors.white70),
                             title: const Text("Help & Feedback", style: TextStyle(color: Colors.white)),
                             trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                            onTap: () { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Help Center opening soon..."))); }
-                        ),
+                            onTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Help Center opening soon...")));
+                            }
+                        )
                       ]
                   )
               ),
@@ -1276,45 +1526,63 @@ class _MeTabState extends State<_MeTab> {
 
               const Text("Danger Zone ⚠️", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: BhojnTheme.accentRed)),
               const SizedBox(height: 15),
+
               Container(
-                decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
-                child: Column(
-                  children: [
-                    ListTile(
-                        onTap: () => _confirmLogout(context),
-                        leading: const Icon(Icons.logout, color: Colors.white),
-                        title: const Text("Logout", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
-                    ),
-                    const Divider(color: Colors.white10, height: 1),
-                    ListTile(
-                        onTap: () => _confirmDeleteProfile(context),
-                        leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
-                        title: const Text("Delete Profile", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))
-                    ),
-                  ],
-                ),
-              ),
+                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
+                  child: Column(
+                      children: [
+                        ListTile(
+                            onTap: () => _confirmLogout(context),
+                            leading: const Icon(Icons.logout, color: Colors.white),
+                            title: const Text("Logout", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                        ),
+                        const Divider(color: Colors.white10, height: 1),
+                        ListTile(
+                            onTap: () => _confirmDeleteProfile(context),
+                            leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
+                            title: const Text("Delete Profile", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))
+                        )
+                      ]
+                  )
+              )
             ]
         )
     );
   }
 }
 
+// ============================================================================
+// 👋 HELPER: WAVING HAND ANIMATION
+// ============================================================================
 class _WavingHand extends StatefulWidget {
   const _WavingHand({super.key});
-  @override State<_WavingHand> createState() => _WavingHandState();
+
+  @override
+  State<_WavingHand> createState() => _WavingHandState();
 }
+
 class _WavingHandState extends State<_WavingHand> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
+
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))..repeat(reverse: true);
     _animation = Tween<double>(begin: -0.05, end: 0.1).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
+
   @override
-  void dispose() { _controller.dispose(); super.dispose(); }
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
-  Widget build(BuildContext context) => RotationTransition(turns: _animation, child: const Text("👋", style: TextStyle(fontSize: 18)));
+  Widget build(BuildContext context) {
+    return RotationTransition(
+        turns: _animation,
+        child: const Text("👋", style: TextStyle(fontSize: 18))
+    );
+  }
 }

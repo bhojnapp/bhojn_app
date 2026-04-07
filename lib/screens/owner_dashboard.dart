@@ -285,7 +285,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                 children: [
                   const Text('BHOJN', style: TextStyle(fontWeight: FontWeight.w900, color: BhojnTheme.accentRed, fontStyle: FontStyle.italic, fontSize: 24)), const SizedBox(width: 15),
                   GestureDetector(onTap: () => _toggleMessStatus(isMessOpen), child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: isMessOpen ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2), borderRadius: BorderRadius.circular(10), border: Border.all(color: isMessOpen ? Colors.green : Colors.red, width: 1)), child: Text(isMessOpen ? "OPEN" : "CLOSED", style: TextStyle(color: isMessOpen ? Colors.green : Colors.red, fontSize: 10, fontWeight: FontWeight.bold)))),
-                  const Spacer(), Text("Hello $firstName ", style: const TextStyle(color: Colors.white, fontSize: 16)), const _WavingHand(),
+                  const Spacer(), Text("Hello", style: const TextStyle(color: Colors.white, fontSize: 16)), const _WavingHand(),
                 ],
               ),
             ),
