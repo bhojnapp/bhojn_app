@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:gal/gal.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 // ----------------------------------------------------------------------------
 // 🚀 HELPER: Time to Meal Converter (FIXED: 4 PM onwards is Dinner)
@@ -41,10 +42,33 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   int _currentIndex = 0;
   final User? user = FirebaseAuth.instance.currentUser;
   final AuthService _auth = AuthService();
+  // 🚀 NAYA FUNCTION: Ye chup-chaap naya token layega aur save karega
+  Future<void> saveNewFCMToken() async {
+    try {
+      User? user = FirebaseAuth.instance.currentUser;
+      if (user == null) return; // Agar user logged in nahi hai, toh wapas jao
+
+      // Google ke server se naya token mango
+      String? token = await FirebaseMessaging.instance.getToken();
+
+      if (token != null) {
+        print("🔥 Naya Token Mil Gaya: $token"); // Terminal mein check karne ke liye
+
+        // Database mein ghus ke update maar do
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+          'fcmToken': token,
+        });
+        print("✅ Token successfully database mein save ho gaya!");
+      }
+    } catch (e) {
+      print("🚨 Token save karne mein error aa gaya bhai: $e");
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    saveNewFCMToken();
 
     if (user != null) {
       NotificationServices notificationServices = NotificationServices();

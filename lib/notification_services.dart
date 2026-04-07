@@ -5,44 +5,46 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class NotificationServices {
   FirebaseMessaging messaging = FirebaseMessaging.instance;
-  final dynamic _localNotificationsPlugin = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _localNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
-  // 🚀 MEGA FIX: Static flags taaki double initialization na ho
   static bool _isLocalInitialized = false;
   static bool _isListenerActive = false;
 
   // 1. Local Initialization
   Future<void> initLocalNotifications() async {
-    // ✅ FIX: Agar pehle se setup hai, toh dubara mat karo
     if (_isLocalInitialized) return;
 
     var androidSettings = const AndroidInitializationSettings('@mipmap/launcher_icon');
     var initSettings = InitializationSettings(android: androidSettings);
 
     try {
+      // 🚀 ASLI FIX: Naye version mein parameter ka naam sirf 'settings' hai
       await _localNotificationsPlugin.initialize(
-        initSettings, // Pehla positional
-        onDidReceiveNotificationResponse: (NotificationResponse response) {
-          print("Notification clicked: ${response.payload}");
-        },
+        settings: initSettings,
       );
-      _isLocalInitialized = true; // Mark as done
-    } catch (e) {
-      print("Initialization error, trying backup: $e");
-      await _localNotificationsPlugin.initialize(initSettings);
+
+      var androidChannel = const AndroidNotificationChannel(
+        'bhojn_urgent_channel',
+        'Bhojn Urgent Alerts',
+        importance: Importance.max,
+        playSound: true,
+      );
+
+      await _localNotificationsPlugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(androidChannel);
+
       _isLocalInitialized = true;
+    } catch (e) {
+      print("Initialization error: $e");
     }
 
-    print("Local Chowkidar Ready! ✅");
+    print("Local Chowkidar Ready with VIP Channel! ✅");
   }
 
-  // 2. FCM Foreground Listener (Ye active app me notification bajayega)
+  // 2. FCM Foreground Listener
   void firebaseInit() {
-    // ✅ MEGA FIX: Agar listener pehle se lag chuka hai, toh doosra mat banao! (Prevents Double Notification)
-    if (_isListenerActive) {
-      print("🔔 Listener pehle se active hai, skipping duplicate...");
-      return;
-    }
+    if (_isListenerActive) return;
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print("🔔 FCM Foreground Message Aaya: ${message.notification?.title}");
@@ -55,7 +57,7 @@ class NotificationServices {
       }
     });
 
-    _isListenerActive = true; // Mark as active
+    _isListenerActive = true;
   }
 
   // 3. Show Notification (Local)
@@ -71,27 +73,34 @@ class NotificationServices {
 
     var details = NotificationDetails(android: androidDetails);
 
+    // 🚀 ASLI FIX: show() ke andar bhi sab kuch exact naam (id:, title:) ke sath dena padta hai
     await _localNotificationsPlugin.show(
-      Random().nextInt(100000),
-      title,
-      body,
-      details,
+      id: Random().nextInt(100000),
+      title: title,
+      body: body,
+      notificationDetails: details,
     );
   }
 
-  // 4. Permission maangna
-  void requestNotificationPermission() async {
+  // 4. Permission maangna (Android 13+ Popup Fix)
+  Future<void> requestNotificationPermission() async {
     NotificationSettings settings = await messaging.requestPermission(
         alert: true,
         badge: true,
         sound: true
     );
+
+    // Android 13+ popup
+    await _localNotificationsPlugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
+
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
       print('Bhai, Notification Permission mil gayi! 🎉');
     }
   }
 
-  // 5. Token save karna (Ab ye properly FCM server ko token dega)
+  // 5. Token save karna
   Future<void> saveDeviceToken(String userId, String userType) async {
     try {
       String? token = await messaging.getToken();

@@ -50,9 +50,21 @@ class AuthService {
     }
   }
 
-  // LOGOUT FUNCTION
   Future<void> logout() async {
-    await _auth.signOut();
+    try {
+      User? currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
+        // 🚀 NAYA LOGIC: Logout hone se pehle database se purana token Delete maar do
+        await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).update({
+          'fcmToken': FieldValue.delete(),
+        });
+      }
+
+      // Ab aaram se Firebase se sign out kar do
+      await FirebaseAuth.instance.signOut();
+    } catch (e) {
+      print("Logout error: $e");
+    }
   }
 
   // Simple Error Handler
