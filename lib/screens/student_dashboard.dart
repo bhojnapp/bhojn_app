@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../services/auth_service.dart';
 import 'scanner_screen.dart';
 import '../notification_services.dart';
+import '../services/request_service.dart';
 
 // ----------------------------------------------------------------------------
 // 🚀 HELPER: Time to Meal Converter
@@ -160,6 +161,10 @@ class _StudentDashboardState extends State<StudentDashboard> {
             WidgetsBinding.instance.addPostFrameCallback((_) => _showDailyChutkula());
           }
 
+          // 🚀 REAL GPS LINK: Student ki location nikali yahan se
+          double currentLat = double.tryParse(studentData['lat']?.toString() ?? '18.5204') ?? 18.5204;
+          double currentLng = double.tryParse(studentData['lng']?.toString() ?? '73.8567') ?? 73.8567;
+
           final List<Widget> tabs = [
             _HomeTab(
               activeMesses: activeMesses,
@@ -170,7 +175,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                 setState(() { _globalSelectedMessId = newId; });
               },
             ),
-            const _ExploreTab(),
+            _ExploreTab(studentLat: currentLat, studentLng: currentLng), // 🚀 And pass kardi Explore ko
             const _HostelsTab(),
             _MeTab(activeMesses: activeMesses, studentData: studentData, auth: AuthService(), uid: user!.uid)
           ];
@@ -178,44 +183,80 @@ class _StudentDashboardState extends State<StudentDashboard> {
           return Scaffold(
             backgroundColor: BhojnTheme.darkBg,
             appBar: AppBar(
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                title: Row(
-                    children: [
-                      const Text('BHOJN', style: TextStyle(fontWeight: FontWeight.w900, color: BhojnTheme.primaryOrange, fontStyle: FontStyle.italic, fontSize: 24)),
-                      if (_currentIndex == 0 && _globalSelectedMessId != null) ...[
-                        const SizedBox(width: 8),
-                        StreamBuilder<DocumentSnapshot>(
-                            stream: FirebaseFirestore.instance.collection('users').doc(_globalSelectedMessId).snapshots(),
-                            builder: (context, messSnap) {
-                              if (!messSnap.hasData || !messSnap.data!.exists) return const SizedBox();
-                              bool isOpen = messSnap.data!['is_open'] ?? true;
+              backgroundColor: Colors.transparent,
+              elevation: 0,
 
-                              return AnimatedContainer(
-                                  duration: const Duration(milliseconds: 300),
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                  decoration: BoxDecoration(
-                                      color: isOpen ? Colors.green.withOpacity(0.15) : Colors.redAccent.withOpacity(0.15),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: isOpen ? Colors.green : Colors.redAccent, width: 1.5)
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Container(width: 6, height: 6, decoration: BoxDecoration(shape: BoxShape.circle, color: isOpen ? Colors.green : Colors.redAccent)),
-                                      const SizedBox(width: 4),
-                                      Text(isOpen ? "OPEN" : "CLOSED", style: TextStyle(color: isOpen ? Colors.green : Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
-                                    ],
-                                  )
-                              );
+              // 🚀 THE IOS KILLER FIX: Ye lagate hi sab left me chipak jayega!
+              centerTitle: false,
+              titleSpacing: 20, // Edge se left spacing
+
+              // 🔥 1. LEFT SIDE (Sirf BHOJN aur OPEN/CLOSED button)
+              title: Row(
+                  mainAxisSize: MainAxisSize.min, // Jitni zaroorat utni jagah lega
+                  children: [
+                    const Text('BHOJN', style: TextStyle(fontWeight: FontWeight.w900, color: BhojnTheme.primaryOrange, fontStyle: FontStyle.italic, fontSize: 24)),
+
+                    if (_currentIndex == 0 && _globalSelectedMessId != null) ...[
+                      const SizedBox(width: 8),
+                      StreamBuilder<DocumentSnapshot>(
+                          stream: FirebaseFirestore.instance.collection('users').doc(_globalSelectedMessId).snapshots(),
+                          builder: (context, messSnap) {
+                            if (!messSnap.hasData || !messSnap.data!.exists) return const SizedBox();
+
+                            // Safe Extraction jo humne pichle fix mein kiya tha
+                            var messData = messSnap.data!.data() as Map<String, dynamic>?;
+                            bool isOpen = true;
+                            if (messData != null && messData.containsKey('is_open')) {
+                              isOpen = messData['is_open'] == true;
                             }
-                        )
+
+                            return AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                decoration: BoxDecoration(
+                                    color: isOpen ? Colors.green.withOpacity(0.15) : Colors.redAccent.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: isOpen ? Colors.green : Colors.redAccent, width: 1.5)
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(width: 6, height: 6, decoration: BoxDecoration(shape: BoxShape.circle, color: isOpen ? Colors.green : Colors.redAccent)),
+                                    const SizedBox(width: 4),
+                                    Text(isOpen ? "OPEN" : "CLOSED", style: TextStyle(color: isOpen ? Colors.green : Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                                  ],
+                                )
+                            );
+                          }
+                      )
+                    ],
+                  ]
+              ),
+
+              // 🔥 2. RIGHT SIDE (Hello Name aur 👋) - Ye automatically right me jayega
+              actions: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 20),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 130), // Laal patti aane se rokega
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Flexible(
+                          child: Text(
+                            "Hello", // Yahan apna dynamic naam (user.displayName) daal dena
+                            style: TextStyle(color: Colors.white, fontSize: 16),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        const _WavingHand()
                       ],
-                      const Spacer(),
-                      const Text("Hello", style: TextStyle(color: Colors.white, fontSize: 16)),
-                      const _WavingHand()
-                    ]
+                    ),
+                  ),
                 )
+              ],
             ),
             body: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
@@ -335,18 +376,16 @@ class _HomeTabState extends State<_HomeTab> {
     String ownerUpi = messData['upi_id'] ?? "";
     String messName = messData['mess_name'] ?? "Mess";
 
-    // 🚀 Custom Payment Controller
     TextEditingController payCtrl = TextEditingController(text: pendingAmount.toInt().toString());
 
     showModalBottomSheet(
         context: context,
-        isScrollControlled: true, // Keyboard aane pe sheet upar jayegi
+        isScrollControlled: true,
         backgroundColor: BhojnTheme.surfaceCard,
         shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
         builder: (context) => StatefulBuilder(
             builder: (context, setModalState) {
               return StreamBuilder<QuerySnapshot>(
-                // 🚀 ANTI-SPAM: Check checking if previous request is still pending
                   stream: FirebaseFirestore.instance.collection('users').doc(messUid).collection('recent_transactions')
                       .where('uid', isEqualTo: widget.studentUid)
                       .where('isPending', isEqualTo: true)
@@ -385,7 +424,6 @@ class _HomeTabState extends State<_HomeTab> {
 
                             if (pendingAmount > 0) ...[
                               if (hasPendingRequest) ...[
-                                // 🚀 WARNING: Agar pehle se payment pending hai
                                 Container(
                                   padding: const EdgeInsets.all(15),
                                   decoration: BoxDecoration(
@@ -404,7 +442,6 @@ class _HomeTabState extends State<_HomeTab> {
                                 const SizedBox(height: 20),
                                 SizedBox(width: double.infinity, height: 50, child: OutlinedButton(style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24)), onPressed: () => Navigator.pop(context), child: const Text("Close")))
                               ] else ...[
-                                // 🚀 CUSTOM AMOUNT: Nayi payment karne ke liye
                                 const Align(alignment: Alignment.centerLeft, child: Text("Enter Amount to Pay Now (₹)", style: TextStyle(color: Colors.white70, fontSize: 12))),
                                 const SizedBox(height: 8),
                                 TextField(
@@ -448,7 +485,7 @@ class _HomeTabState extends State<_HomeTab> {
                                           await FirebaseFirestore.instance.collection('users').doc(messUid).collection('recent_transactions').add({
                                             'name': widget.studentData['name'] ?? "Student",
                                             'uid': widget.studentUid,
-                                            'amount': payingAmt, // 🚀 Saves the Custom Amount
+                                            'amount': payingAmt,
                                             'type': 'Due Payment (Pending Verify)',
                                             'time': timeStr,
                                             'isPending': true,
@@ -736,7 +773,11 @@ class _HomeTabState extends State<_HomeTab> {
 // 🌍 2. EXPLORE TAB
 // ============================================================================
 class _ExploreTab extends StatefulWidget {
-  const _ExploreTab();
+  final double studentLat;
+  final double studentLng;
+
+  const _ExploreTab({required this.studentLat, required this.studentLng});
+
   @override
   State<_ExploreTab> createState() => _ExploreTabState();
 }
@@ -745,8 +786,7 @@ class _ExploreTabState extends State<_ExploreTab> {
   String searchQuery = "";
   bool showOnlyOpen = false;
   bool showWithin3Km = false;
-  final double studentLat = 18.5204;
-  final double studentLng = 73.8567;
+  bool showHighestRated = false; // 🚀 NAYA FEATURE: Top Rated Filter
 
   double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
     if (lat1 == 0 || lon1 == 0 || lat2 == 0 || lon2 == 0) return 0.0;
@@ -851,19 +891,28 @@ class _ExploreTabState extends State<_ExploreTab> {
                               onPressed: () async {
                                 final user = FirebaseAuth.instance.currentUser;
                                 if(user != null) {
-                                  await FirebaseFirestore.instance.collection('users').doc(messUid).collection('join_requests').doc(user.uid).set({
-                                    'student_name': user.displayName ?? 'Student',
-                                    'student_uid': user.uid,
-                                    'paid_amount': paidAmount,
-                                    'pending_dues': pendingDue,
-                                    'total_allotted_meals': allocatedMeals,
-                                    'status': 'Pending',
-                                    'timestamp': FieldValue.serverTimestamp()
-                                  });
-                                  if (context.mounted) {
-                                    Navigator.pop(context);
-                                    Navigator.pop(context);
-                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request Sent to Owner! 🚀"), backgroundColor: Colors.green));
+                                  try {
+                                    // 🚀 YAHAN APNI SERVICE KO BULAYA
+                                    final requestService = RequestService();
+                                    await requestService.sendJoinRequest(
+                                      studentUid: user.uid,
+                                      studentName: user.displayName ?? 'Student',
+                                      messId: messUid,
+                                      ownerUid: messUid, // BHOJN app me owner_id aur mess_id same hota hai
+                                      paidAmount: paidAmount,
+                                      pendingDues: pendingDue,
+                                      allocatedMeals: allocatedMeals,
+                                    );
+
+                                    if (context.mounted) {
+                                      Navigator.pop(context);
+                                      Navigator.pop(context);
+                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request Sent to Owner! 🚀"), backgroundColor: Colors.green));
+                                    }
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+                                    }
                                   }
                                 }
                               },
@@ -932,13 +981,29 @@ class _ExploreTabState extends State<_ExploreTab> {
                             scrollDirection: Axis.horizontal,
                             itemCount: photos.length,
                             itemBuilder: (context, index) {
-                              return Container(
-                                  margin: const EdgeInsets.only(right: 12),
-                                  width: 160,
-                                  decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(15),
-                                      image: DecorationImage(image: NetworkImage(photos[index]), fit: BoxFit.cover)
-                                  )
+                              return GestureDetector(
+                                // 🚀 NAYA FEATURE: Photo pe tap karte hi full screen open hoga
+                                onTap: () {
+                                  showDialog(
+                                      context: context,
+                                      builder: (_) => Dialog(
+                                        backgroundColor: Colors.transparent,
+                                        insetPadding: const EdgeInsets.all(10),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(15),
+                                          child: InteractiveViewer(child: Image.network(photos[index], fit: BoxFit.contain)),
+                                        ),
+                                      )
+                                  );
+                                },
+                                child: Container(
+                                    margin: const EdgeInsets.only(right: 12),
+                                    width: 160,
+                                    decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(15),
+                                        image: DecorationImage(image: NetworkImage(photos[index]), fit: BoxFit.cover)
+                                    )
+                                ),
                               );
                             }
                         )
@@ -1060,6 +1125,19 @@ class _ExploreTabState extends State<_ExploreTab> {
                     side: BorderSide.none,
                     onSelected: (bool value) { setState(() { showWithin3Km = value; }); }
                 ),
+                const SizedBox(width: 10),
+                // 🚀 NAYA FEATURE: Top Rated Filter Chip
+                FilterChip(
+                    label: const Text("Top Rated 🌟", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    selected: showHighestRated,
+                    selectedColor: Colors.amber.withOpacity(0.3),
+                    checkmarkColor: Colors.amber,
+                    backgroundColor: Colors.white.withOpacity(0.05),
+                    labelStyle: TextStyle(color: showHighestRated ? Colors.amber : Colors.grey),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    side: BorderSide.none,
+                    onSelected: (bool value) { setState(() { showHighestRated = value; }); }
+                ),
               ],
             ),
           ),
@@ -1080,7 +1158,7 @@ class _ExploreTabState extends State<_ExploreTab> {
 
                   double lat = double.tryParse(data['lat']?.toString() ?? '0') ?? 0.0;
                   double lng = double.tryParse(data['lng']?.toString() ?? '0') ?? 0.0;
-                  double distance = _calculateDistance(studentLat, studentLng, lat, lng);
+                  double distance = _calculateDistance(widget.studentLat, widget.studentLng, lat, lng);
 
                   if (showWithin3Km && (distance > 3.0 || distance == 0.0)) return false;
 
@@ -1089,6 +1167,28 @@ class _ExploreTabState extends State<_ExploreTab> {
                 }).toList();
 
                 if (messes.isEmpty) return const Center(child: Text("No matches found based on your filters.", style: TextStyle(color: Colors.grey)));
+
+                // 🚀 NAYA FEATURE: Smart Sorting (Nearest First OR Highest Rated First)
+                messes.sort((a, b) {
+                  var dataA = a.data() as Map<String, dynamic>;
+                  var dataB = b.data() as Map<String, dynamic>;
+
+                  if (showHighestRated) {
+                    double ratingA = double.tryParse(dataA['avg_rating']?.toString() ?? '0') ?? 0.0;
+                    double ratingB = double.tryParse(dataB['avg_rating']?.toString() ?? '0') ?? 0.0;
+                    return ratingB.compareTo(ratingA); // Descending (High to Low)
+                  } else {
+                    double latA = double.tryParse(dataA['lat']?.toString() ?? '0') ?? 0.0;
+                    double lngA = double.tryParse(dataA['lng']?.toString() ?? '0') ?? 0.0;
+                    double distA = _calculateDistance(widget.studentLat, widget.studentLng, latA, lngA);
+
+                    double latB = double.tryParse(dataB['lat']?.toString() ?? '0') ?? 0.0;
+                    double lngB = double.tryParse(dataB['lng']?.toString() ?? '0') ?? 0.0;
+                    double distB = _calculateDistance(widget.studentLat, widget.studentLng, latB, lngB);
+
+                    return distA.compareTo(distB); // Ascending (Nearest First)
+                  }
+                });
 
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -1103,7 +1203,7 @@ class _ExploreTabState extends State<_ExploreTab> {
 
                     double lat = double.tryParse(messData['lat']?.toString() ?? '0') ?? 0.0;
                     double lng = double.tryParse(messData['lng']?.toString() ?? '0') ?? 0.0;
-                    double dist = _calculateDistance(studentLat, studentLng, lat, lng);
+                    double dist = _calculateDistance(widget.studentLat, widget.studentLng, lat, lng);
                     String distanceStr = dist > 0 ? "${dist.toStringAsFixed(1)} KM" : "Distance Unknown";
 
                     return Card(
@@ -1139,6 +1239,23 @@ class _ExploreTabState extends State<_ExploreTab> {
                                     padding: const EdgeInsets.only(left: 15, right: 15, bottom: 15),
                                     child: Column(
                                         children: [
+                                          // 🚀 NAYA FEATURE: Added Lat Lng Coordinates with Copy Button
+                                          Row(
+                                              children: [
+                                                const Icon(Icons.location_on, color: Colors.grey, size: 16),
+                                                const SizedBox(width: 5),
+                                                Expanded(child: Text("Lat: ${lat.toStringAsFixed(4)}, Lng: ${lng.toStringAsFixed(4)}", style: const TextStyle(color: Colors.grey, fontSize: 12))),
+                                                IconButton(
+                                                    icon: const Icon(Icons.copy, color: BhojnTheme.primaryOrange, size: 16),
+                                                    tooltip: "Copy Coordinates",
+                                                    onPressed: () {
+                                                      Clipboard.setData(ClipboardData(text: "$lat, $lng"));
+                                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Coordinates Copied! 📋"), backgroundColor: Colors.green));
+                                                    }
+                                                )
+                                              ]
+                                          ),
+                                          const SizedBox(height: 5),
                                           Row(
                                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                               children: [

@@ -2,7 +2,7 @@ name: bhojn_app
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 11.8.0+21
 
 environment:
   sdk: ^3.11.1
@@ -27,6 +27,10 @@ dependencies:
   share_plus: ^7.2.1
   gal: ^2.3.2
   cloud_functions: ^6.1.0
+  image_picker: ^1.2.1
+  firebase_storage: ^13.1.0
+  firebase_app_check: ^0.4.2
+  google_sign_in: ^7.2.0
 
 dev_dependencies:
   flutter_test:

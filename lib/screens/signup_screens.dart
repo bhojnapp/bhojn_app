@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart'; // Location ke liye
+import 'package:geolocator/geolocator.dart';
 import '../services/auth_service.dart';
 import '../widgets/custom_widgets.dart';
 import '../theme/app_theme.dart';
@@ -27,25 +27,72 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
 
   bool isLocating = false;
   bool isLoading = false;
-  Position? studentLocation;
+  Position? studentLocation; // Real GPS Location
 
+  // 🚀 NAYA FEATURE: Real GPS Location Fetcher (Strict)
   Future<void> _fetchLocation() async {
     setState(() => isLocating = true);
-    try {
-      LocationPermission permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
-        studentLocation = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("📍 Location Fetched Successfully!"), backgroundColor: Colors.green));
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to get location. You can skip it for now!")));
+
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // Check if GPS is ON
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bhai pehle phone ka GPS (Location) ON kar le! 🗺️"), backgroundColor: Colors.orange));
+      setState(() => isLocating = false);
+      return;
     }
-    setState(() => isLocating = false);
+
+    // Check Permissions
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Location permission denied! Nearby mess nahi dikhenge. 🛑"), backgroundColor: Colors.red));
+        setState(() => isLocating = false);
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Permission permanently denied. Settings se allow kar! ⚙️"), backgroundColor: Colors.red));
+      setState(() => isLocating = false);
+      return;
+    }
+
+    try {
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      setState(() {
+        studentLocation = position;
+        isLocating = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("📍 Real Location Captured Successfully!"), backgroundColor: Colors.green));
+    } catch (e) {
+      setState(() => isLocating = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error getting location: $e")));
+    }
   }
 
   void _register() async {
     if (_emailCtrl.text.isEmpty || _passCtrl.text.isEmpty || _nameCtrl.text.isEmpty || _mobileCtrl.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Name, Mobile, Email, Password zaruri hain!")));
+      return;
+    }
+
+    // 🚀 STRICT CHECK: Location mandatory for good Explore experience
+    if (studentLocation == null) {
+      showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: BhojnTheme.surfaceCard,
+            title: const Text("Location Missing 📍", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            content: const Text("Bhai, 'Detect My Location' pe click karke real GPS location de, taaki hum tujhe tere aas-paas ki nearest messes dikha sakein!"),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK", style: TextStyle(color: BhojnTheme.primaryOrange)))
+            ],
+          )
+      );
       return;
     }
 
@@ -61,9 +108,9 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
             'alt_mobile': _altMobileCtrl.text.trim(),
             'college': _collegeCtrl.text.trim(),
             'address': _addressCtrl.text.trim(),
-            // 🚀 CTO HACK: Agar location null hai, toh dummy coordinate dal do
-            'lat': studentLocation?.latitude ?? 18.5204, // Default Pune Lat
-            'lng': studentLocation?.longitude ?? 73.8567, // Default Pune Lng
+            // 🚀 REAL DATA: Ab dummy data ki jagah exact GPS value cloud pe jayegi
+            'lat': studentLocation!.latitude,
+            'lng': studentLocation!.longitude,
           }
       );
     } catch (e) {
@@ -111,10 +158,20 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
 
             ElevatedButton.icon(
               onPressed: _fetchLocation,
-              icon: isLocating ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.location_on),
-              label: Text(studentLocation == null ? "Detect My Location (Or Skip) 📍" : "Location Saved ✅"),
-              style: ElevatedButton.styleFrom(backgroundColor: studentLocation == null ? Colors.blueGrey : Colors.green, minimumSize: const Size(double.infinity, 50)),
+              icon: isLocating ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.my_location),
+              label: Text(studentLocation == null ? "Detect My Live Location 📍" : "Location Locked ✅"),
+              style: ElevatedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: studentLocation == null ? BhojnTheme.primaryOrange.withOpacity(0.5) : Colors.green,
+                  minimumSize: const Size(double.infinity, 50)
+              ),
             ),
+            if (studentLocation != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text("Lat: ${studentLocation!.latitude.toStringAsFixed(4)}, Lng: ${studentLocation!.longitude.toStringAsFixed(4)}", style: const TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold)),
+              ),
+
             const SizedBox(height: 30),
 
             if (isLoading) const CircularProgressIndicator(color: BhojnTheme.primaryOrange)
@@ -157,20 +214,49 @@ class _OwnerSignupScreenState extends State<OwnerSignupScreen> {
 
   bool isLocating = false;
   bool isLoading = false;
-  Position? messLocation;
+  Position? messLocation; // Real GPS Location
 
+  // 🚀 NAYA FEATURE: Real GPS Location Fetcher for Owner
   Future<void> _fetchLocation() async {
     setState(() => isLocating = true);
-    try {
-      LocationPermission permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.whileInUse || permission == LocationPermission.always) {
-        messLocation = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("📍 Mess Location Locked!"), backgroundColor: Colors.green));
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Location zaruri hai, but testing ke liye skip kar sakte ho!")));
+
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bhai pehle phone ka GPS (Location) ON kar le! 🗺️"), backgroundColor: Colors.orange));
+      setState(() => isLocating = false);
+      return;
     }
-    setState(() => isLocating = false);
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Location permission denied! Mess map pe nahi dikhegi. 🛑"), backgroundColor: Colors.red));
+        setState(() => isLocating = false);
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Permission permanently denied. Settings se allow kar! ⚙️"), backgroundColor: Colors.red));
+      setState(() => isLocating = false);
+      return;
+    }
+
+    try {
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      setState(() {
+        messLocation = position;
+        isLocating = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("📍 Real Mess Location Locked Successfully!"), backgroundColor: Colors.green));
+    } catch (e) {
+      setState(() => isLocating = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error getting location: $e")));
+    }
   }
 
   void _register() async {
@@ -179,11 +265,21 @@ class _OwnerSignupScreenState extends State<OwnerSignupScreen> {
       return;
     }
 
-    // 🚀 CTO HACK: Location check temporarily disabled for testing!
-    // if (messLocation == null) {
-    //   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please detect mess location first! 📍")));
-    //   return;
-    // }
+    // 🚀 STRICT CHECK: Location mandatory for Owner so it shows in distance calculations
+    if (messLocation == null) {
+      showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: BhojnTheme.surfaceCard,
+            title: const Text("Mess Location Missing 📍", style: TextStyle(color: BhojnTheme.accentRed, fontWeight: FontWeight.bold)),
+            content: const Text("Malik, 'Detect Live Mess Location' pe click karke apne mess ki real GPS location set karo, taaki students ko tumhari mess nearby mein dikhe!"),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK", style: TextStyle(color: BhojnTheme.accentRed)))
+            ],
+          )
+      );
+      return;
+    }
 
     setState(() => isLoading = true);
     try {
@@ -197,9 +293,9 @@ class _OwnerSignupScreenState extends State<OwnerSignupScreen> {
             'alt_mobile': _altMobileCtrl.text.trim(),
             'address': _addressCtrl.text.trim(),
             'upi_id': _upiCtrl.text.trim(),
-            // 🚀 CTO HACK: Agar location null hai, toh dummy coordinate dal do
-            'lat': messLocation?.latitude ?? 18.5204, // Default Lat
-            'lng': messLocation?.longitude ?? 73.8567, // Default Lng
+            // 🚀 REAL DATA: Exact GPS value of the Mess
+            'lat': messLocation!.latitude,
+            'lng': messLocation!.longitude,
             'price_thali': _thaliCtrl.text.isNotEmpty ? _thaliCtrl.text : "N/A",
             'price_monthly': _monthlyCtrl.text.isNotEmpty ? _monthlyCtrl.text : "N/A",
           }
@@ -268,9 +364,19 @@ class _OwnerSignupScreenState extends State<OwnerSignupScreen> {
             ElevatedButton.icon(
               onPressed: _fetchLocation,
               icon: isLocating ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.my_location),
-              label: Text(messLocation == null ? "Detect Location (Or Skip for Test) 📍" : "Location Saved ✅"),
-              style: ElevatedButton.styleFrom(backgroundColor: messLocation == null ? BhojnTheme.accentRed : Colors.green, minimumSize: const Size(double.infinity, 50)),
+              label: Text(messLocation == null ? "Detect Live Mess Location 📍" : "Mess Location Locked ✅"),
+              style: ElevatedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: messLocation == null ? BhojnTheme.accentRed.withOpacity(0.5) : Colors.green,
+                  minimumSize: const Size(double.infinity, 50)
+              ),
             ),
+            if (messLocation != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Text("Lat: ${messLocation!.latitude.toStringAsFixed(4)}, Lng: ${messLocation!.longitude.toStringAsFixed(4)}", style: const TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold)),
+              ),
+
             const SizedBox(height: 30),
 
             if (isLoading) const CircularProgressIndicator(color: BhojnTheme.accentRed)

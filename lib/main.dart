@@ -10,6 +10,7 @@ import 'screens/student_dashboard.dart';
 import 'screens/owner_dashboard.dart';
 import 'services/auth_service.dart';
 import 'theme/app_theme.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 
 // ✅ NEW: Background Notification Handler (Isko class ke bahar hi rakhna hai)
 @pragma('vm:entry-point')
@@ -23,6 +24,10 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
 
+  await FirebaseAppCheck.instance.activate(
+    // Play Integrity production ke liye (Play Store/APK)
+      androidProvider: AndroidProvider.playIntegrity,
+  );
   // ✅ NEW: Background handler ko activate kiya
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 

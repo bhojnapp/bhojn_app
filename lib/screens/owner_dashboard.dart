@@ -15,6 +15,10 @@ import 'package:share_plus/share_plus.dart';
 import 'package:gal/gal.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import '../services/request_service.dart';
 
 // ----------------------------------------------------------------------------
 // 🚀 HELPER: Time to Meal Converter (FIXED: 4 PM onwards is Dinner)
@@ -706,8 +710,8 @@ class _StatusTabState extends State<_StatusTab> {
 // ============================================================================
 class _AttendanceTab extends StatefulWidget {
   final String uid;
-  final Map<String, dynamic> ownerData; // 🚀 Ye line add ki
-  const _AttendanceTab({required this.uid, required this.ownerData}); // 🚀 Ye update kiya
+  final Map<String, dynamic> ownerData;
+  const _AttendanceTab({required this.uid, required this.ownerData});
   @override State<_AttendanceTab> createState() => _AttendanceTabState();
 }
 
@@ -715,32 +719,38 @@ class _AttendanceTabState extends State<_AttendanceTab> {
   String _currentFilter = 'All';
   final List<String> _filters = ['All', 'Present', 'Absent', 'Pending Dues', 'Full Paid'];
 
-  // 🚀 SAFE JOIN CONFIRMATION
-  void _acceptStudent(String studentUid, String studentName, num dues, int totalMeals) async {
+  // 🚀 PRO JOIN CONFIRMATION (Using Batch Write Service)
+  void _acceptStudent(String requestDocId, String studentUid, String studentName, num dues, int totalMeals, num paidAmt) async { // 👈 Yahan paidAmt add kar diya
     try {
-      await FirebaseFirestore.instance.collection('users').doc(studentUid).set({
-        'joined_mess_id': widget.uid,
-        'active_messes': FieldValue.arrayUnion([widget.uid]),
-        'mess_data': {
-          widget.uid: {
-            'remaining_meals': totalMeals,
-            'total_allotted_meals': totalMeals,
-            'pending_dues': dues,
-          }
-        }
-      }, SetOptions(merge: true));
+      final requestService = RequestService();
+      String timeStr = DateFormat('hh:mm a').format(DateTime.now()); // 👈 Yahan timeStr nikal liya
 
-      await FirebaseFirestore.instance.collection('users').doc(widget.uid).collection('join_requests').doc(studentUid).delete();
+      await requestService.acceptRequest(
+        requestId: requestDocId,
+        studentId: studentUid,
+        studentName: studentName,
+        ownerId: widget.uid,
+        totalMeals: totalMeals,
+        pendingDues: dues.toInt(),
+        paidAmount: paidAmt.toInt(),
+        timeStr: timeStr,
+      );
 
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$studentName Accepted! ✅"), backgroundColor: Colors.green));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$studentName Accepted! 🎉✅"), backgroundColor: Colors.green));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: ${e.toString()} ❌"), backgroundColor: Colors.red));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e ❌"), backgroundColor: Colors.red));
     }
   }
 
-  void _declineStudent(String studentUid) async {
-    await FirebaseFirestore.instance.collection('users').doc(widget.uid).collection('join_requests').doc(studentUid).delete();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request Declined! ❌"), backgroundColor: Colors.red));
+  // 🚀 PRO DECLINE (Using Request Service)
+  void _declineStudent(String requestDocId) async {
+    try {
+      final requestService = RequestService();
+      await requestService.rejectRequest(requestDocId);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request Declined! ❌"), backgroundColor: Colors.red));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+    }
   }
 
   // 🚀 MEGA FIX: CUSTOM DUE PAYMENT CALCULATOR (Partial or Full)
@@ -811,7 +821,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                     ),
                     const SizedBox(height: 15),
 
-                    // 🚀 SMART MATHEMATICS: Extract Actual Paid Amount by comparing Plan Rate vs Current Dues
+                    // 🚀 SMART MATHEMATICS: Extract Actual Paid Amount
                     FutureBuilder<DocumentSnapshot>(
                         future: FirebaseFirestore.instance.collection('users').doc(widget.uid).get(),
                         builder: (context, ownerSnap) {
@@ -821,11 +831,9 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                             int priceMonthly = int.tryParse(ownerData['price_monthly']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '0') ?? 0;
                             int price15 = int.tryParse(ownerData['price_15days']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '0') ?? 0;
 
-                            // Student ki meal limit ke hisaab se uska active plan price pakad liya
                             planPrice = totalMeals <= 30 ? price15 : priceMonthly;
                           }
 
-                          // Formula: Total Paid = Real Plan Price - Remaining Dues
                           num totalPaid = planPrice > 0 ? (planPrice - dues) : 0;
                           if (totalPaid < 0) totalPaid = 0;
 
@@ -835,7 +843,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                   children: [
                                     Expanded(
                                         child: Container(
-                                            padding: const EdgeInsets.all(10), // Reduced size
+                                            padding: const EdgeInsets.all(10),
                                             decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.green.withOpacity(0.3))),
                                             child: Column(
                                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -850,7 +858,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                     const SizedBox(width: 10),
                                     Expanded(
                                         child: Container(
-                                            padding: const EdgeInsets.all(10), // Reduced size
+                                            padding: const EdgeInsets.all(10),
                                             decoration: BoxDecoration(color: dues > 0 ? Colors.red.withOpacity(0.1) : Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: dues > 0 ? Colors.red.withOpacity(0.3) : Colors.blue.withOpacity(0.3))),
                                             child: Column(
                                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -871,7 +879,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                     const Padding(padding: EdgeInsets.only(left: 20, top: 15), child: Text("Complete Attendance History 🍛", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
                     const SizedBox(height: 10),
 
-                    // 🚀 TIMELINE FIX: Added Date Stamps just like the Me Tab!
+                    // 🚀 FIXED: Galti se yahan join_requests aa gaya tha, isko wapas recent_transactions kar diya
                     Expanded(
                       child: StreamBuilder<QuerySnapshot>(
                           stream: FirebaseFirestore.instance.collection('users').doc(widget.uid).collection('recent_transactions').orderBy('timestamp', descending: true).limit(1000).snapshots(),
@@ -905,7 +913,6 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                 return Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    // 📅 UI Refinement: Date Stamp Divider
                                     Padding(
                                       padding: const EdgeInsets.only(top: 20, bottom: 15),
                                       child: Row(
@@ -931,7 +938,6 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                       ),
                                     ),
 
-                                    // 🍛 Scans & Payments mapped under their respective dates
                                     ...items.map((item) {
                                       String time = item['time'] ?? '--:--';
                                       String type = item['type'] ?? "Scan";
@@ -992,9 +998,10 @@ class _AttendanceTabState extends State<_AttendanceTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
 
-          // 🚀 SMART HIDING: PENDING JOIN REQUESTS
+          // 🚀 SMART HIDING: PENDING JOIN REQUESTS (PRO FIX APPLIED)
           StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('users').doc(widget.uid).collection('join_requests').where('status', isEqualTo: 'Pending').snapshots(),
+            // 🚀 NAYA STREAM: Ab yeh Global postbox 'join_requests' mein check karega!
+              stream: FirebaseFirestore.instance.collection('join_requests').where('owner_id', isEqualTo: widget.uid).where('status', isEqualTo: 'pending').snapshots(),
               builder: (context, requestSnap) {
                 if (!requestSnap.hasData || requestSnap.data!.docs.isEmpty) {
                   return const SizedBox.shrink(); // Ekdum gayab ho jayega agar khali hai!
@@ -1014,7 +1021,10 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                         itemCount: requestSnap.data!.docs.length,
                         itemBuilder: (context, index) {
                           var req = requestSnap.data!.docs[index].data() as Map<String, dynamic>;
-                          String sUid = requestSnap.data!.docs[index].id;
+
+                          // 🚀 NAYA: Request ki ID aur Student ki ID dono alag alag nikaali
+                          String requestDocId = requestSnap.data!.docs[index].id;
+                          String sUid = req['student_id'] ?? '';
                           String sName = req['student_name'] ?? 'Student';
 
                           num paidAmt = num.tryParse(req['paid_amount']?.toString() ?? '0') ?? 0;
@@ -1048,12 +1058,13 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     GestureDetector(
-                                        onTap: () => _declineStudent(sUid),
+                                        onTap: () => _declineStudent(requestDocId), // 🚀 requestDocId bhej diya
                                         child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.red.withOpacity(0.2), shape: BoxShape.circle), child: const Icon(Icons.close, color: Colors.red, size: 16))
                                     ),
                                     ElevatedButton(
                                         style: ElevatedButton.styleFrom(backgroundColor: Colors.green, padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                                        onPressed: () => _acceptStudent(sUid, sName, dues, meals),
+                                        // 🚀 YAHAN paidAmt PASS KAR DIYA
+                                        onPressed: () => _acceptStudent(requestDocId, sUid, sName, dues, meals, paidAmt),
                                         child: const Text("ACCEPT", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))
                                     ),
                                   ],
@@ -1234,7 +1245,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                             ),
                           ),
 
-                          // 🚀 NEW: REMIND DEFAULTERS BUTTON (Visible ONLY when Pending Dues filter is active)
+                          // 🚀 NEW: REMIND DEFAULTERS BUTTON
                           if (_currentFilter == 'Pending Dues' && filteredStudents.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -1246,16 +1257,13 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                     label: const Text("Remind All Defaulters", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                                     onPressed: () async {
                                       try {
-                                        // Pehle user ko dikhao ki kuch ho rha hai
                                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sending Reminders... ⏳")));
 
-                                        // Cloud function ko call karo
                                         final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('remindDefaulters');
                                         final result = await callable.call(<String, dynamic>{
                                           'messName': widget.ownerData['mess_name'] ?? 'Your Mess',
                                         });
 
-                                        // Success response aane par
                                         if (result.data['success'] == true) {
                                           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result.data['message']), backgroundColor: Colors.green));
                                         }
@@ -1337,59 +1345,252 @@ class _AttendanceTabState extends State<_AttendanceTab> {
 }
 
 // ============================================================================
-// 🍽️ 4. MESS TAB (🔥 Fixed 2x Income Bug & Separated Cash vs Value)
+// 🍽️ 4. MESS TAB (🔥 Photo Upload Bug Fixed + Advanced Analytics)
 // ============================================================================
-class _MessTab extends StatelessWidget {
-  final AuthService auth; final String uid; final Map<String, dynamic> ownerData;
+class _MessTab extends StatefulWidget {
+  final AuthService auth;
+  final String uid;
+  final Map<String, dynamic> ownerData;
+
   const _MessTab({required this.auth, required this.uid, required this.ownerData});
 
-  void _editProfile(BuildContext context) {
-    TextEditingController nameCtrl = TextEditingController(text: ownerData['mess_name']); TextEditingController mobileCtrl = TextEditingController(text: ownerData['mobile']); TextEditingController addressCtrl = TextEditingController(text: ownerData['address']); TextEditingController upiCtrl = TextEditingController(text: ownerData['upi_id'] ?? "");
-    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: BhojnTheme.surfaceCard, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))), builder: (context) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 25, right: 25, top: 25), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [const Text("Edit Mess Details", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)), const SizedBox(height: 20), TextField(controller: nameCtrl, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Mess Name", labelStyle: TextStyle(color: Colors.grey))), TextField(controller: mobileCtrl, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Contact Mobile", labelStyle: TextStyle(color: Colors.grey))), TextField(controller: addressCtrl, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Full Address", labelStyle: TextStyle(color: Colors.grey))), const SizedBox(height: 10), TextField(controller: upiCtrl, style: const TextStyle(color: BhojnTheme.accentRed, fontWeight: FontWeight.bold), decoration: const InputDecoration(labelText: "UPI ID (Very Important)", labelStyle: TextStyle(color: BhojnTheme.accentRed), hintText: "example@okbank", hintStyle: TextStyle(color: Colors.white24))), const SizedBox(height: 20), SizedBox(width: double.infinity, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.accentRed), onPressed: () async { String enteredUpi = upiCtrl.text.trim(); bool isValidUpi = RegExp(r"^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$").hasMatch(enteredUpi); if (!isValidUpi && enteredUpi.isNotEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("⚠️ Invalid UPI Format! Must be like name@bank"), backgroundColor: Colors.red)); return; } await FirebaseFirestore.instance.collection('users').doc(uid).update({'mess_name': nameCtrl.text.trim(), 'mobile': mobileCtrl.text.trim(), 'address': addressCtrl.text.trim(), 'upi_id': enteredUpi,}); if(context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Profile Updated Successfully! ✅"), backgroundColor: Colors.green)); } }, child: const Text("SAVE CHANGES & VERIFY"))), const SizedBox(height: 20), ])));
+  @override
+  State<_MessTab> createState() => _MessTabState();
+}
+
+class _MessTabState extends State<_MessTab> {
+
+  Future<void> _updateLiveLocation(BuildContext context) async {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Fetching exact GPS location... ⏳")));
+
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("GPS OFF hai! Pehle location on kar. 🗺️"), backgroundColor: Colors.orange));
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Location permission denied! 🛑"), backgroundColor: Colors.red));
+        return;
+      }
+    }
+
+    try {
+      Position pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      await FirebaseFirestore.instance.collection('users').doc(widget.uid).update({
+        'lat': pos.latitude,
+        'lng': pos.longitude,
+      });
+      if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Location Updated! 📍✅"), backgroundColor: Colors.green));
+    } catch(e) {
+      if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
   }
 
-  void _showComplaints(BuildContext context) {
-    showModalBottomSheet(context: context, backgroundColor: BhojnTheme.surfaceCard, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))), builder: (context) {
-      return Column(children: [
-        const SizedBox(height: 20), const Text("Student Complaints 🚨", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)), const SizedBox(height: 15),
-        Expanded(child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('users').doc(uid).collection('complaints').orderBy('timestamp', descending: true).snapshots(),
-            builder: (context, snap) {
-              if(!snap.hasData || snap.data!.docs.isEmpty) return const Center(child: Text("No complaints yet. Great job!", style: TextStyle(color: Colors.green)));
-              return ListView.builder(itemCount: snap.data!.docs.length, itemBuilder: (context, index) {
-                var doc = snap.data!.docs[index];
-                return ListTile(
-                    leading: const Icon(Icons.warning, color: Colors.orange),
-                    title: Text(doc['issue'], style: const TextStyle(color: Colors.white)),
-                    subtitle: const Text("Anonymous", style: TextStyle(color: Colors.grey, fontSize: 10)),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.check_circle_outline, color: Colors.green),
-                      tooltip: "Mark as Read (Delete)",
-                      onPressed: () async {
-                        await FirebaseFirestore.instance.collection('users').doc(uid).collection('complaints').doc(doc.id).delete();
-                        if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Complaint marked as read & deleted! ✅")));
-                      },
+  // 📸 BULLETPROOF PHOTO UPLOAD
+  // 📸 SUPER DEBUG PHOTO UPLOAD
+  Future<void> _uploadPhoto(BuildContext context, List<dynamic> currentPhotos) async {
+    if (currentPhotos.length >= 5) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Max 5 photos allowed! Purani delete kar. 🛑"), backgroundColor: Colors.orange));
+      return;
+    }
+
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 60);
+
+      if (image != null) {
+        if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Uploading photo... Please wait ⏳")));
+
+        File file = File(image.path);
+        print("🔥 1. FILE PATH MIL GAYA: ${file.path}");
+
+        // Naya naam aur rasta
+        String fileName = 'mess_photos/${widget.uid}/${DateTime.now().millisecondsSinceEpoch}.jpg';
+        var ref = FirebaseStorage.instance.ref().child(fileName);
+
+        print("🔥 2. UPLOADING TO FIREBASE STORAGE...");
+        UploadTask uploadTask = ref.putFile(file);
+
+        // 🚀 Wait for upload to complete 100%
+        TaskSnapshot snapshot = await uploadTask.whenComplete(() {
+          print("🔥 3. UPLOAD TASK 100% FINISHED!");
+        });
+
+        print("🔥 4. FETCHING DOWNLOAD URL...");
+        String downloadUrl = await snapshot.ref.getDownloadURL();
+        print("🔥 5. URL MIL GAYA: $downloadUrl");
+
+        await FirebaseFirestore.instance.collection('users').doc(widget.uid).update({
+          'photos': FieldValue.arrayUnion([downloadUrl])
+        });
+
+        if(context.mounted) {
+          Navigator.pop(context); // Sheet close
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Photo Uploaded & Live! 📸✅"), backgroundColor: Colors.green));
+        }
+      }
+    } catch(e) {
+      print("🚨 MEGA ERROR DURING UPLOAD: $e");
+      if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Upload failed: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  // 🗑️ DELETE PHOTO
+  Future<void> _deletePhoto(String photoUrl) async {
+    try {
+      Reference photoRef = FirebaseStorage.instance.refFromURL(photoUrl);
+      await photoRef.delete();
+      await FirebaseFirestore.instance.collection('users').doc(widget.uid).update({
+        'photos': FieldValue.arrayRemove([photoUrl])
+      });
+      if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Photo Deleted! 🗑️"), backgroundColor: Colors.green));
+    } catch(e) {
+      await FirebaseFirestore.instance.collection('users').doc(widget.uid).update({
+        'photos': FieldValue.arrayRemove([photoUrl])
+      });
+    }
+  }
+
+  // 🖼️ ADVANCED PHOTO MANAGER
+  void _managePhotos(BuildContext context, List<dynamic> photos) {
+    showModalBottomSheet(
+        context: context,
+        backgroundColor: BhojnTheme.surfaceCard,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (context) {
+          return Padding(
+              padding: const EdgeInsets.all(25),
+              child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(10))),
+                    const SizedBox(height: 20),
+
+                    const Text("Mess Photos (Max 5) 📸", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 15),
+
+                    if (photos.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: Text("No photos added yet. Upload to attract students!", style: TextStyle(color: Colors.grey)),
+                      )
+                    else
+                      SizedBox(
+                          height: 140,
+                          child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: photos.length,
+                              itemBuilder: (context, index) {
+                                return Stack(
+                                    children: [
+                                      Container(
+                                          margin: const EdgeInsets.only(right: 15, top: 10),
+                                          width: 140,
+                                          decoration: BoxDecoration(
+                                              borderRadius: BorderRadius.circular(15),
+                                              border: Border.all(color: Colors.white10),
+                                              image: DecorationImage(image: NetworkImage(photos[index]), fit: BoxFit.cover)
+                                          )
+                                      ),
+                                      Positioned(
+                                          top: 0, right: 5,
+                                          child: InkWell(
+                                            onTap: () async {
+                                              Navigator.pop(context);
+                                              await _deletePhoto(photos[index]);
+                                            },
+                                            child: const CircleAvatar(radius: 14, backgroundColor: Colors.red, child: Icon(Icons.delete, size: 16, color: Colors.white)),
+                                          )
+                                      )
+                                    ]
+                                );
+                              }
+                          )
+                      ),
+
+                    const SizedBox(height: 25),
+                    SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.primaryOrange, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                            onPressed: photos.length >= 5 ? null : () => _uploadPhoto(context, photos),
+                            icon: const Icon(Icons.add_a_photo, color: Colors.white),
+                            label: const Text("Upload New Photo", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                        )
                     )
-                );
-              });
-            }
-        ))
-      ]);
-    });
+                  ]
+              )
+          );
+        }
+    );
+  }
+
+  void _editProfile(BuildContext context) {
+    TextEditingController nameCtrl = TextEditingController(text: widget.ownerData['mess_name']);
+    TextEditingController mobileCtrl = TextEditingController(text: widget.ownerData['mobile']);
+    TextEditingController addressCtrl = TextEditingController(text: widget.ownerData['address']);
+    TextEditingController upiCtrl = TextEditingController(text: widget.ownerData['upi_id'] ?? "");
+
+    showModalBottomSheet(
+        context: context, isScrollControlled: true, backgroundColor: BhojnTheme.surfaceCard, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (context) => Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 25, right: 25, top: 25),
+            child: Column(
+                mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("Edit Mess Details", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 25),
+                  TextField(controller: nameCtrl, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Mess Name", labelStyle: TextStyle(color: Colors.grey))),
+                  const SizedBox(height: 15),
+                  TextField(controller: mobileCtrl, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Contact Mobile", labelStyle: TextStyle(color: Colors.grey))),
+                  const SizedBox(height: 15),
+                  TextField(controller: addressCtrl, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Full Address", labelStyle: TextStyle(color: Colors.grey))),
+                  const SizedBox(height: 15),
+                  TextField(controller: upiCtrl, style: const TextStyle(color: BhojnTheme.accentRed, fontWeight: FontWeight.bold), decoration: const InputDecoration(labelText: "UPI ID (Very Important)", labelStyle: TextStyle(color: BhojnTheme.accentRed), hintText: "example@okbank", hintStyle: TextStyle(color: Colors.white24))),
+                  const SizedBox(height: 30),
+                  SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.accentRed, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                          onPressed: () async {
+                            String enteredUpi = upiCtrl.text.trim();
+                            bool isValidUpi = RegExp(r"^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$").hasMatch(enteredUpi);
+                            if (!isValidUpi && enteredUpi.isNotEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("⚠️ Invalid UPI Format! Must be like name@bank"), backgroundColor: Colors.red)); return; }
+
+                            await FirebaseFirestore.instance.collection('users').doc(widget.uid).update({'mess_name': nameCtrl.text.trim(), 'mobile': mobileCtrl.text.trim(), 'address': addressCtrl.text.trim(), 'upi_id': enteredUpi,});
+                            if(context.mounted) { Navigator.pop(context); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Profile Updated Successfully! ✅"), backgroundColor: Colors.green)); }
+                          },
+                          child: const Text("SAVE CHANGES", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                      )
+                  ),
+                  const SizedBox(height: 20),
+                ]
+            )
+        )
+    );
   }
 
   void _confirmLogout(BuildContext context) {
     showDialog(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (dialogContext) => AlertDialog(
           backgroundColor: BhojnTheme.surfaceCard,
           title: const Text("Logout?", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           content: const Text("Are you sure you want to logout of your account?", style: TextStyle(color: Colors.grey)),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel", style: TextStyle(color: Colors.white70))),
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text("Cancel", style: TextStyle(color: Colors.white70))),
             ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.accentRed),
-                onPressed: () { Navigator.pop(context); auth.logout(); },
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  widget.auth.logout();
+                },
                 child: const Text("Yes, Logout", style: TextStyle(color: Colors.white))
             )
           ],
@@ -1397,63 +1598,179 @@ class _MessTab extends StatelessWidget {
     );
   }
 
+  void _confirmDeleteProfile(BuildContext context) {
+    showDialog(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: BhojnTheme.surfaceCard,
+          title: const Text("Delete Profile? ⚠️", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          content: const Text("This is a permanent action! Your mess profile, active students, and all transaction history will be wiped out from the servers immediately. Are you sure?", style: TextStyle(color: Colors.grey)),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text("Cancel", style: TextStyle(color: Colors.white70))),
+            ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                onPressed: () async {
+                  Navigator.pop(dialogContext);
+                  showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.redAccent)));
+
+                  try {
+                    User? user = FirebaseAuth.instance.currentUser;
+                    if (user != null) {
+                      String uid = user.uid;
+                      await FirebaseFirestore.instance.collection('users').doc(uid).delete();
+                      await user.delete();
+                      await widget.auth.logout();
+                      if (context.mounted) Navigator.pop(context);
+                    }
+                  } on FirebaseAuthException catch(e) {
+                    if (context.mounted) Navigator.pop(context);
+                    if (e.code == 'requires-recent-login') {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Security Check: Session expired. Log out and log in again to verify identity before deleting! 🔒"), backgroundColor: Colors.orange, duration: Duration(seconds: 5)));
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: ${e.message}")));
+                    }
+                  } catch(e) {
+                    if (context.mounted) Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to delete account. Contact support.")));
+                  }
+                },
+                child: const Text("Permanently Delete", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+            )
+          ],
+        )
+    );
+  }
+
+  void _manageHolidays(BuildContext context, String currentHolidaysStr) {
+    List<String> allDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    List<String> selectedDays = currentHolidaysStr == "None" ? [] : currentHolidaysStr.split(', ');
+
+    showModalBottomSheet(
+        context: context,
+        backgroundColor: BhojnTheme.surfaceCard,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (sheetContext) {
+          return StatefulBuilder(
+              builder: (context, setSheetState) {
+                return Padding(
+                    padding: const EdgeInsets.all(25.0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("Select Weekly Holidays", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 5),
+                        const Text("Select multiple days if your mess is closed on specific days.", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                        const SizedBox(height: 20),
+
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: allDays.map((day) {
+                            bool isSelected = selectedDays.contains(day);
+                            return FilterChip(
+                              label: Text(day, style: TextStyle(color: isSelected ? Colors.white : Colors.grey, fontSize: 12)),
+                              selected: isSelected,
+                              selectedColor: BhojnTheme.accentRed,
+                              backgroundColor: Colors.white10,
+                              checkmarkColor: Colors.white,
+                              onSelected: (val) {
+                                setSheetState(() {
+                                  if (val) {
+                                    selectedDays.add(day);
+                                  } else {
+                                    selectedDays.remove(day);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 30),
+                        SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.accentRed, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                                onPressed: () async {
+                                  String newHolidayStr = selectedDays.isEmpty ? "None" : selectedDays.join(', ');
+                                  await FirebaseFirestore.instance.collection('users').doc(widget.uid).update({'weekly_holiday': newHolidayStr});
+                                  if (context.mounted) {
+                                    Navigator.pop(context);
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Holidays Updated! 📅"), backgroundColor: Colors.green));
+                                  }
+                                },
+                                child: const Text("Save Holidays", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                            )
+                        )
+                      ],
+                    )
+                );
+              }
+          );
+        }
+    );
+  }
+
   @override Widget build(BuildContext context) {
-    String messName = ownerData['mess_name'] ?? "My Mess Profile";
-    String contactInfo = ownerData['mobile'] ?? "No Contact Added";
-    String address = ownerData['address'] ?? "Address not provided";
-    bool isVisible = ownerData['is_visible'] ?? true;
-    String holiday = ownerData['weekly_holiday'] ?? "None";
-    bool wantsScanNotifications = ownerData['notify_on_scan'] ?? true;
+    String messName = widget.ownerData['mess_name'] ?? "My Mess Profile";
+    String contactInfo = widget.ownerData['mobile'] ?? "No Contact Added";
+    String address = widget.ownerData['address'] ?? "Address not provided";
+    bool isVisible = widget.ownerData['is_visible'] ?? true;
+    String holiday = widget.ownerData['weekly_holiday'] ?? "None";
+    bool wantsScanNotifications = widget.ownerData['notify_on_scan'] ?? true;
+    List<dynamic> photos = widget.ownerData['photos'] ?? [];
+
+    double lat = double.tryParse(widget.ownerData['lat']?.toString() ?? '0') ?? 0.0;
+    double lng = double.tryParse(widget.ownerData['lng']?.toString() ?? '0') ?? 0.0;
+    String coordStr = (lat != 0 && lng != 0) ? "${lat.toStringAsFixed(3)}, ${lng.toStringAsFixed(3)}" : "Not Set";
 
     DateTime now = DateTime.now();
     DateTime startOfToday = DateTime(now.year, now.month, now.day);
-    DateTime startOfMonth = DateTime(now.year, now.month, 1);
-    DateTime startOfYear = DateTime(now.year, 1, 1);
 
-    int priceMonthly = int.tryParse(ownerData['price_monthly']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '0') ?? 0;
+    int priceMonthly = int.tryParse(widget.ownerData['price_monthly']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '0') ?? 0;
     int avgThaliRate = priceMonthly > 0 ? (priceMonthly / 60).round() : 0;
 
     return StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'student').where('active_messes', arrayContains: uid).snapshots(),
+        stream: FirebaseFirestore.instance.collection('users').where('role', isEqualTo: 'student').where('active_messes', arrayContains: widget.uid).snapshots(),
         builder: (context, studentSnap) {
 
           int totalPendingDues = 0;
           if (studentSnap.hasData) {
             for (var doc in studentSnap.data!.docs) {
               var sData = doc.data() as Map<String, dynamic>;
-              Map<String, dynamic> specData = sData['mess_data']?[uid] ?? {};
+              Map<String, dynamic> specData = sData['mess_data']?[widget.uid] ?? {};
               totalPendingDues += (num.tryParse(specData['pending_dues']?.toString() ?? sData['pending_dues']?.toString() ?? '0') ?? 0).toInt();
             }
           }
 
           return StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('users').doc(uid).collection('recent_transactions').orderBy('timestamp', descending: true).limit(3000).snapshots(),
+              stream: FirebaseFirestore.instance.collection('users').doc(widget.uid).collection('recent_transactions').orderBy('timestamp', descending: true).limit(3000).snapshots(),
               builder: (context, recentSnap) {
 
-                // 🚀 NAYA LOGIC: Cash aur Consumption ko alag kar diya
                 int cashToday = 0, cashMonthly = 0, cashYearly = 0;
                 int foodValueToday = 0, foodValueMonthly = 0, foodValueYearly = 0;
 
                 if(recentSnap.hasData) {
                   for(var doc in recentSnap.data!.docs) {
                     var data = doc.data() as Map<String, dynamic>;
-                    if(data['isPending'] == true) continue;
+                    if(data['isPending'] == true || data['timestamp'] == null) continue;
 
-                    DateTime dt = data['timestamp'] != null ? (data['timestamp'] as Timestamp).toDate() : DateTime.now();
+                    DateTime dt = (data['timestamp'] as Timestamp).toDate();
 
                     int amt = (data['amount'] is int) ? data['amount'] : (int.tryParse(data['amount']?.toString() ?? '0') ?? 0);
-                    bool isScan = (amt == 0); // Sirf scans zero amount ke hote hain
+                    bool isScan = (amt == 0);
                     int valueToAdd = isScan ? avgThaliRate : amt;
 
-                    if (!dt.isBefore(startOfYear)) {
+                    if (dt.year == now.year) {
                       if (amt > 0) cashYearly += amt;
                       if (isScan) foodValueYearly += valueToAdd;
 
-                      if (!dt.isBefore(startOfMonth)) {
+                      if (dt.month == now.month) {
                         if (amt > 0) cashMonthly += amt;
                         if (isScan) foodValueMonthly += valueToAdd;
 
-                        if (!dt.isBefore(startOfToday)) {
+                        if (dt.day == now.day) {
                           if (amt > 0) cashToday += amt;
                           if (isScan) foodValueToday += valueToAdd;
                         }
@@ -1465,64 +1782,160 @@ class _MessTab extends StatelessWidget {
                 return SingleChildScrollView(
                   padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 80),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(20)), child: Column(children: [Row(children: [const CircleAvatar(radius: 40, backgroundColor: Colors.white10, child: Icon(Icons.restaurant, size: 40, color: BhojnTheme.accentRed)), const SizedBox(width: 20), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(messName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)), const SizedBox(height: 5), Text("+91 $contactInfo", style: const TextStyle(color: Colors.white70, fontSize: 14))])), IconButton(onPressed: () => _editProfile(context), icon: const Icon(Icons.edit, color: BhojnTheme.accentRed))]), const Divider(color: Colors.white10, height: 30), Row(crossAxisAlignment: CrossAxisAlignment.start, children: [const Icon(Icons.location_on, color: Colors.grey, size: 18), const SizedBox(width: 10), Expanded(child: Text(address, style: const TextStyle(color: Colors.grey, fontSize: 13)))])])), const SizedBox(height: 25),
 
-                    const Text("Inbox", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)), const SizedBox(height: 10),
+                    Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(20)),
+                        child: Column(
+                            children: [
+                              Row(
+                                  children: [
+                                    const CircleAvatar(radius: 40, backgroundColor: Colors.white10, child: Icon(Icons.restaurant, size: 40, color: BhojnTheme.accentRed)),
+                                    const SizedBox(width: 20),
+                                    Expanded(
+                                        child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(messName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+                                              const SizedBox(height: 5),
+                                              Text("+91 $contactInfo", style: const TextStyle(color: Colors.white70, fontSize: 14))
+                                            ]
+                                        )
+                                    ),
+                                    IconButton(onPressed: () => _editProfile(context), icon: const Icon(Icons.edit, color: BhojnTheme.accentRed))
+                                  ]
+                              ),
+                              const Divider(color: Colors.white10, height: 30),
+                              Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Icon(Icons.location_on, color: Colors.grey, size: 18),
+                                    const SizedBox(width: 10),
+                                    Expanded(child: Text(address, style: const TextStyle(color: Colors.grey, fontSize: 13)))
+                                  ]
+                              )
+                            ]
+                        )
+                    ),
+                    const SizedBox(height: 25),
 
-                    StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance.collection('users').doc(uid).collection('complaints').snapshots(),
-                        builder: (context, snap) {
-                          int count = snap.data?.docs.length ?? 0;
-                          return ListTile(onTap: () => _showComplaints(context), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)), tileColor: Colors.white.withOpacity(0.05), leading: const Icon(Icons.report_problem, color: Colors.orange), title: const Text("Student Complaints", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), subtitle: const Text("Read feedback & issues", style: TextStyle(color: Colors.grey, fontSize: 11)), trailing: Container(padding: const EdgeInsets.all(8), decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle), child: Text(count.toString(), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold))));
-                        }
-                    ), const SizedBox(height: 25),
+                    const Text("Income Analytics 📈", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const SizedBox(height: 15),
 
-                    const Text("Income Analytics 📈", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)), const SizedBox(height: 15),
+                    Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text("Avg. Thali Rate:", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                                  Text("₹$avgThaliRate / meal", style: const TextStyle(color: BhojnTheme.primaryOrange, fontSize: 12, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                              const SizedBox(height: 15),
 
-                    // 🚀 SPLIT DASHBOARD: Cash vs Food Value
-                    Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text("Avg. Thali Rate:", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                          Text("₹$avgThaliRate / meal", style: const TextStyle(color: BhojnTheme.primaryOrange, fontSize: 12, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                      const SizedBox(height: 15),
+                              const Text("💰 Actual Cash Received", style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 14)),
+                              const SizedBox(height: 5),
+                              _incomeRow("Today", "₹ $cashToday"),
+                              _incomeRow("This Month", "₹ $cashMonthly"),
+                              _incomeRow("This Year", "₹ $cashYearly"),
 
-                      // Section 1: Real Cash Flow
-                      const Text("💰 Actual Cash Received", style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 14)),
-                      const SizedBox(height: 5),
-                      _incomeRow("Today", "₹ $cashToday"),
-                      _incomeRow("This Month", "₹ $cashMonthly"),
-                      _incomeRow("This Year", "₹ $cashYearly"),
+                              const Divider(color: Colors.white10, height: 30),
 
-                      const Divider(color: Colors.white10, height: 30),
+                              const Text("🍛 Value of Food Served", style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 14)),
+                              const SizedBox(height: 5),
+                              _incomeRow("Today", "₹ $foodValueToday"),
+                              _incomeRow("This Month", "₹ $foodValueMonthly"),
+                              _incomeRow("This Year", "₹ $foodValueYearly"),
 
-                      // Section 2: Value of Food Served
-                      const Text("🍛 Value of Food Served", style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 14)),
-                      const SizedBox(height: 5),
-                      _incomeRow("Today", "₹ $foodValueToday"),
-                      _incomeRow("This Month", "₹ $foodValueMonthly"),
-                      _incomeRow("This Year", "₹ $foodValueYearly"),
+                              const Divider(color: Colors.white10, height: 30),
 
-                      const Divider(color: Colors.white10, height: 30),
+                              _incomeRow("Total Pending Dues", "₹ $totalPendingDues", color: Colors.redAccent),
+                            ]
+                        )
+                    ),
+                    const SizedBox(height: 25),
 
-                      // Section 3: Due Amount
-                      _incomeRow("Total Pending Dues", "₹ $totalPendingDues", color: Colors.redAccent),
-                      const SizedBox(height: 15),
+                    const Text("Settings & Controls ⚙️", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const SizedBox(height: 15),
 
-                      SizedBox(width: double.infinity, child: OutlinedButton(onPressed: (){ ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Detailed ledger will be available on the Web Portal."))); }, style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white24)), child: const Text("View Last 2 Years History", style: TextStyle(color: Colors.white))))
-                    ])), const SizedBox(height: 25),
+                    Container(
+                        decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
+                        child: Column(
+                            children: [
+                              ListTile(
+                                  leading: const Icon(Icons.collections, color: BhojnTheme.primaryOrange),
+                                  title: const Text("Manage Mess Photos", style: TextStyle(color: Colors.white, fontSize: 14)),
+                                  subtitle: Text("${photos.length}/5 Photos Uploaded", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                                  trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                                  onTap: () => _managePhotos(context, photos)
+                              ),
+                              const Divider(color: Colors.white10, height: 1),
 
-                    const Text("Settings & Controls ⚙️", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)), const SizedBox(height: 15),
+                              ListTile(
+                                  leading: const Icon(Icons.my_location, color: Colors.blueAccent),
+                                  title: const Text("Update Live Location", style: TextStyle(color: Colors.white, fontSize: 14)),
+                                  subtitle: Text("GPS: $coordStr", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                                  trailing: const Icon(Icons.refresh, size: 18, color: Colors.blueAccent),
+                                  onTap: () => _updateLiveLocation(context)
+                              ),
+                              const Divider(color: Colors.white10, height: 1),
 
-                    Container(decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)), child: Column(children: [
-                      SwitchListTile(activeColor: BhojnTheme.accentRed, title: const Text("Visibility for Nearby Students", style: TextStyle(color: Colors.white, fontSize: 14)), subtitle: Text(isVisible ? "Students can see you in Explore" : "You are hidden from searches", style: const TextStyle(color: Colors.grey, fontSize: 11)), value: isVisible, onChanged: (val) => FirebaseFirestore.instance.collection('users').doc(uid).update({'is_visible': val})), const Divider(color: Colors.white10, height: 1),
-                      SwitchListTile(activeColor: BhojnTheme.accentRed, title: const Text("Attendance Push Notifications", style: TextStyle(color: Colors.white, fontSize: 14)), subtitle: Text(wantsScanNotifications ? "You get notified on every student scan" : "Silent mode. No scan alerts.", style: const TextStyle(color: Colors.grey, fontSize: 11)), value: wantsScanNotifications, onChanged: (val) => FirebaseFirestore.instance.collection('users').doc(uid).update({'notify_on_scan': val})), const Divider(color: Colors.white10, height: 1),
-                      ListTile(leading: const Icon(Icons.event_busy, color: Colors.white70), title: const Text("Set Weekly Holiday", style: TextStyle(color: Colors.white, fontSize: 14)), subtitle: Text("Currently: $holiday", style: const TextStyle(color: Colors.grey, fontSize: 11)), trailing: const Icon(Icons.edit, size: 14, color: Colors.grey), onTap: () { showDialog(context: context, builder: (context) => AlertDialog(backgroundColor: BhojnTheme.surfaceCard, title: const Text("Select Weekly Holiday", style: TextStyle(color: Colors.white)), content: DropdownButtonFormField<String>(dropdownColor: BhojnTheme.surfaceCard, style: const TextStyle(color: Colors.white), items: ['None', 'Sunday', 'Monday', 'Tuesday'].map((String val) { return DropdownMenuItem(value: val, child: Text(val)); }).toList(), onChanged: (newVal) { FirebaseFirestore.instance.collection('users').doc(uid).update({'weekly_holiday': newVal}); Navigator.pop(context); }))); }), const Divider(color: Colors.white10, height: 1),
-                      ListTile(leading: const Icon(Icons.logout, color: Colors.white70), title: const Text("Logout", style: TextStyle(color: Colors.white, fontSize: 14)), onTap: () => _confirmLogout(context)),
-                    ])), const SizedBox(height: 100),
+                              SwitchListTile(
+                                  activeColor: BhojnTheme.accentRed,
+                                  title: const Text("Visibility for Nearby Students", style: TextStyle(color: Colors.white, fontSize: 14)),
+                                  subtitle: Text(isVisible ? "Students can see you in Explore" : "You are hidden from searches", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                                  value: isVisible,
+                                  onChanged: (val) => FirebaseFirestore.instance.collection('users').doc(widget.uid).update({'is_visible': val})
+                              ),
+                              const Divider(color: Colors.white10, height: 1),
+
+                              SwitchListTile(
+                                  activeColor: BhojnTheme.accentRed,
+                                  title: const Text("Attendance Push Notifications", style: TextStyle(color: Colors.white, fontSize: 14)),
+                                  subtitle: Text(wantsScanNotifications ? "You get notified on every student scan" : "Silent mode. No scan alerts.", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                                  value: wantsScanNotifications,
+                                  onChanged: (val) => FirebaseFirestore.instance.collection('users').doc(widget.uid).update({'notify_on_scan': val})
+                              ),
+                              const Divider(color: Colors.white10, height: 1),
+
+                              ListTile(
+                                  leading: const Icon(Icons.event_busy, color: Colors.white70),
+                                  title: const Text("Set Weekly Holiday(s)", style: TextStyle(color: Colors.white, fontSize: 14)),
+                                  subtitle: Text("Closed on: $holiday", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                                  trailing: const Icon(Icons.edit, size: 14, color: Colors.grey),
+                                  onTap: () => _manageHolidays(context, holiday)
+                              ),
+                            ]
+                        )
+                    ),
+                    const SizedBox(height: 30),
+
+                    const Text("Danger Zone ⚠️", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: BhojnTheme.accentRed)),
+                    const SizedBox(height: 15),
+
+                    Container(
+                        decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
+                        child: Column(
+                            children: [
+                              ListTile(
+                                  leading: const Icon(Icons.logout, color: Colors.white70),
+                                  title: const Text("Logout", style: TextStyle(color: Colors.white, fontSize: 14)),
+                                  onTap: () => _confirmLogout(context)
+                              ),
+                              const Divider(color: Colors.white10, height: 1),
+                              ListTile(
+                                  leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
+                                  title: const Text("Delete Account Permanently", style: TextStyle(color: Colors.redAccent, fontSize: 14, fontWeight: FontWeight.bold)),
+                                  onTap: () => _confirmDeleteProfile(context)
+                              ),
+                            ]
+                        )
+                    ),
+                    const SizedBox(height: 100),
                   ]),
                 );
               }
@@ -1531,8 +1944,18 @@ class _MessTab extends StatelessWidget {
     );
   }
 
-  Widget _incomeRow(String title, String amount, {Color color = Colors.white}) => Padding(padding: const EdgeInsets.symmetric(vertical: 8.0), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(title, style: const TextStyle(color: Colors.grey, fontSize: 13)), Text(amount, style: TextStyle(color: color, fontSize: 15, fontWeight: FontWeight.bold))]));
+  Widget _incomeRow(String title, String amount, {Color color = Colors.white}) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(title, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+            Text(amount, style: TextStyle(color: color, fontSize: 15, fontWeight: FontWeight.bold))
+          ]
+      )
+  );
 }
+
 // Ye sabse last mein daal de bhai
 class _WavingHand extends StatefulWidget { const _WavingHand({super.key}); @override State<_WavingHand> createState() => _WavingHandState(); }
 class _WavingHandState extends State<_WavingHand> with SingleTickerProviderStateMixin { late AnimationController _controller; late Animation<double> _animation; @override void initState() { super.initState(); _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))..repeat(reverse: true); _animation = Tween<double>(begin: -0.05, end: 0.1).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut)); } @override void dispose() { _controller.dispose(); super.dispose(); } @override Widget build(BuildContext context) => RotationTransition(turns: _animation, child: const Text("👋", style: TextStyle(fontSize: 18))); }

@@ -8,7 +8,9 @@ class AuthService {
   // Stream to listen to auth state changes
   Stream<User?> get userStream => _auth.authStateChanges();
 
-  // LOGIN FUNCTION
+  // ==========================================
+  // 🔑 LOGIN FUNCTION
+  // ==========================================
   Future<UserCredential> login(String email, String password) async {
     try {
       return await _auth.signInWithEmailAndPassword(email: email, password: password);
@@ -17,7 +19,9 @@ class AuthService {
     }
   }
 
-  // REGISTER FUNCTION (Updated for v8.2 with extraData)
+  // ==========================================
+  // 📝 REGISTER FUNCTION
+  // ==========================================
   Future<UserCredential> register({
     required String email,
     required String password,
@@ -50,24 +54,22 @@ class AuthService {
     }
   }
 
+  // ==========================================
+  // 🚪 SIMPLE FIREBASE LOGOUT
+  // ==========================================
   Future<void> logout() async {
     try {
-      User? currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser != null) {
-        // 🚀 NAYA LOGIC: Logout hone se pehle database se purana token Delete maar do
-        await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).update({
-          'fcmToken': FieldValue.delete(),
-        });
-      }
-
-      // Ab aaram se Firebase se sign out kar do
+      // Sirf Firebase se logout (Kyunki Email/Password use ho raha hai)
       await FirebaseAuth.instance.signOut();
+      print("✅ Successfully Logged Out from Firebase!");
     } catch (e) {
-      print("Logout error: $e");
+      print("🚨 Logout Error: $e");
     }
   }
 
-  // Simple Error Handler
+  // ==========================================
+  // 🛡️ ERROR HANDLER
+  // ==========================================
   String _handleAuthError(dynamic e) {
     if (e is FirebaseAuthException) {
       switch (e.code) {
