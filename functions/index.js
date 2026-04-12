@@ -14,10 +14,10 @@ exports.notifyOwnerOnNewRequest = onDocumentCreated("join_requests/{reqId}", asy
   if (!snap) return;
 
   const data = snap.data();
-  const ownerId = data.owner_id; // Ab URL se nahi, data ke andar se ID nikal rahe hain
-  const studentName = data.student_name || "Ek Student";
+  const ownerId = data.owner_id;
+  const studentName = data.student_name || "A Student";
 
-  await sendNotificationToUser(ownerId, "Naya Student Aaya Hai! 🎉", `${studentName} ne mess join karne ki request bheji hai.`);
+  await sendNotificationToUser(ownerId, "New Join Request 🎉", `${studentName} has requested to join your mess. Please review.`);
 });
 
 // 2. Student Due Payment Verify karne ki Request Bheje & Live Chowkidar Scan
@@ -31,20 +31,23 @@ exports.notifyOwnerOnPaymentClaim = onDocumentCreated("users/{ownerId}/recent_tr
   if (data.isPending === true && data.type.includes('Payment')) {
     const studentName = data.name || "Student";
     const amt = data.amount || 0;
-    await sendNotificationToUser(ownerId, "Payment Verification 💸", `${studentName} bol raha hai usne ₹${amt} pay kar diye hain. Check karke Verify kar!`);
+    await sendNotificationToUser(ownerId, "Payment Verification Required 💸", `${studentName} has reported a payment of ₹${amt}. Please verify this transaction.`);
   }
 
-  // Live Chowkidar (Scan Notification)
+  // 🚀 UPDATE: Live Chowkidar (Scan Notification) with Dynamic Title
   if (data.isPending === false && (!data.amount || data.amount === 0 || data.amount === "0")) {
       const studentName = data.name || "Student";
-      const mealType = data.type || "Khana";
+      const mealType = data.type || "Meal";
 
       try {
         const ownerDoc = await admin.firestore().collection("users").doc(ownerId).get();
         if (ownerDoc.exists) {
             const wantsNotification = ownerDoc.data().notify_on_scan !== false;
             if (wantsNotification) {
-                await sendNotificationToUser(ownerId, "Live Scan 🔔", `${studentName} ne abhi ${mealType} scan kiya hai.`);
+                // Yahan apan ne Title mein Student ka naam aur Session daal diya!
+                const title = `${studentName} - ${mealType} 🍽️`;
+                const body = `Pass scanned successfully.`;
+                await sendNotificationToUser(ownerId, title, body);
             }
         }
       } catch(e) {
@@ -59,7 +62,7 @@ exports.notifyOwnerOnComplaint = onDocumentCreated("users/{ownerId}/complaints/{
   if (!snap) return;
   const ownerId = event.params.ownerId;
 
-  await sendNotificationToUser(ownerId, "Nayi Complaint Aayi Hai 🚨", "Kisi student ne issue report kiya hai. Dashboard mein check kar.");
+  await sendNotificationToUser(ownerId, "New Feedback/Report 🚨", "A student has submitted a new report. Please check your dashboard for details.");
 });
 
 
@@ -76,7 +79,7 @@ exports.notifyStudentOnPaymentVerify = onDocumentUpdated("users/{ownerId}/recent
   if (before.isPending === true && after.isPending === false) {
     const studentUid = after.uid;
     const amt = after.amount || 0;
-    await sendNotificationToUser(studentUid, "Payment Verified! ✅", `Owner ne tumhara ₹${amt} ka payment confirm kar diya hai. Dues clear!`);
+    await sendNotificationToUser(studentUid, "Payment Verified! ✅", `Your payment of ₹${amt} has been successfully verified by the mess owner.`);
   }
 });
 
@@ -85,15 +88,15 @@ exports.notifyStudentOnAcceptOrReject = onDocumentUpdated("join_requests/{reqId}
   const before = event.data.before.data();
   const after = event.data.after.data();
 
-  const studentId = after.student_id; // Chitthi se student ki ID uthayi
+  const studentId = after.student_id;
 
   // Agar pending se ACCEPTED hua
   if (before.status === 'pending' && after.status === 'accepted') {
-    await sendNotificationToUser(studentId, "Pass Activated! 🎉", "Owner ne tumhari request approve kar di hai. Aaja khana kha le!");
+    await sendNotificationToUser(studentId, "Mess Pass Activated! 🎉", "Your request to join the mess has been approved. You can now scan for meals.");
   }
-  // Agar pending se REJECTED hua (Ye naya add kiya hai tere liye!)
+  // Agar pending se REJECTED hua
   else if (before.status === 'pending' && after.status === 'rejected') {
-    await sendNotificationToUser(studentId, "Request Declined ❌", "Owner ne tumhari mess join request cancel kar di hai.");
+    await sendNotificationToUser(studentId, "Request Declined ❌", "Your request to join the mess was declined by the owner.");
   }
 });
 
@@ -102,20 +105,20 @@ exports.notifyStudentsOnMessUpdates = onDocumentUpdated("users/{ownerId}", async
   const before = event.data.before.data();
   const after = event.data.after.data();
   const ownerId = event.params.ownerId;
-  const messName = after.mess_name || "Mess";
+  const messName = after.mess_name || "Your Mess";
 
   let title = "";
   let body = "";
 
   if (before.today_menu !== after.today_menu) {
-    title = `Menu Updated! 😋 (${messName})`;
-    body = `Aaj ban raha hai: ${after.today_menu}`;
+    title = `Today's Menu Updated! 😋 (${messName})`;
+    body = `Today's special: ${after.today_menu}`;
   } else if (before.is_voting_active === false && after.is_voting_active === true) {
-    title = `Sunday Special Voting Live! 🗳️`;
-    body = `${messName} mein voting shuru ho gayi hai. Apni pasand ka khana vote karo!`;
+    title = `Special Menu Voting is Live! 🗳️`;
+    body = `Voting is now open for ${messName}. Cast your vote in the app now!`;
   } else if (before.is_open === true && after.is_open === false) {
-    title = `Mess Closed 🛑`;
-    body = `${messName} ne abhi status 'Closed' kar diya hai. Update check karo.`;
+    title = `Mess Status: Closed 🛑`;
+    body = `${messName} is currently closed. Please check the app for further updates.`;
   }
 
   if (title !== "") {
@@ -156,14 +159,14 @@ exports.remindDefaulters = onCall(async (request) => {
         });
 
         if (tokensToPing.length === 0) {
-            return { success: true, message: "Sabke paise chukta hain, koi defaulter nahi! 🎉" };
+            return { success: true, message: "All dues are clear, no defaulters found! 🎉" };
         }
 
         await admin.messaging().sendEachForMulticast({
             tokens: tokensToPing,
             notification: {
-                title: `⚠️ Pending Dues Reminder`,
-                body: `${ownerName} owner ne payment reminder bheja hai. Kripya apne pending dues clear karein. 💸`
+                title: `⚠️ Payment Reminder`,
+                body: `This is a gentle reminder from ${ownerName} to clear your pending dues. 💸`
             },
             android: {
                 priority: "high",

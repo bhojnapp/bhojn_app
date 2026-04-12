@@ -57,17 +57,20 @@ class _ScannerScreenState extends State<ScannerScreen> {
       var studentDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       var studentData = studentDoc.data() as Map<String, dynamic>? ?? {};
 
-      // 🚀 MULTIPLE MESS CHECK: Dekho student is mess mein already enrolled hai ya nahi
-      List<dynamic> activeMesses = studentData['active_messes'] ?? [];
-      String? joinedMessId = studentData['joined_mess_id']; // Legacy check for old accounts
+      // 🚀 ASLI NAAM NIKALA
+      String actualStudentName = studentData['name'] ?? "Student";
 
-      // Agar enrolled hai, toh direct attendance mark karo bina payment sheet ke!
+      // MULTIPLE MESS CHECK
+      List<dynamic> activeMesses = studentData['active_messes'] ?? [];
+      String? joinedMessId = studentData['joined_mess_id'];
+
+      // Agar enrolled hai, toh direct attendance mark karo
       if (activeMesses.contains(messUid) || joinedMessId == messUid) {
-        _markDirectAttendance(messUid, user);
+        _markDirectAttendance(messUid, user, actualStudentName);
         return;
       }
 
-      // Agar naya student hai (enrolled nahi hai), toh Mess ki info laao aur Join Sheet kholo
+      // Agar naya student hai, toh Mess ki info laao aur Join Sheet kholo
       var messDoc = await FirebaseFirestore.instance.collection('users').doc(messUid).get();
       if (!messDoc.exists) { _resetScannerWithError("Invalid Mess QR Code! ❌"); return; }
 
@@ -79,35 +82,31 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        _showLivePaymentSheet(messUid, messName, priceThali, priceMonthly, finalUpi);
+        _showLivePaymentSheet(messUid, messName, priceThali, priceMonthly, finalUpi, actualStudentName);
       }
     } catch (e) { _resetScannerWithError("Unrecognized QR Format!"); }
   }
 
-  // 🚀 THE ULTIMATE ATTENDANCE FIX FOR MULTIPLE MESSES
-  void _markDirectAttendance(String messUid, User user) async {
+  void _markDirectAttendance(String messUid, User user, String actualStudentName) async {
     String timeStr = DateFormat('hh:mm a').format(DateTime.now());
     String mealType = _getMealType(timeStr);
 
     var messDoc = await FirebaseFirestore.instance.collection('users').doc(messUid).get();
     String messName = messDoc.data()?['mess_name'] ?? "Mess";
 
-    // 1. Save to Owner's recent_transactions
     await FirebaseFirestore.instance.collection('users').doc(messUid).collection('recent_transactions').add({
-      'name': user.displayName ?? "Student", 'uid': user.uid, 'amount': 0, 'type': 'Attendance: $mealType', 'time': timeStr, 'isPending': false, 'timestamp': FieldValue.serverTimestamp(),
+      'name': actualStudentName, 'uid': user.uid, 'amount': 0, 'type': 'Attendance: $mealType', 'time': timeStr, 'isPending': false, 'timestamp': FieldValue.serverTimestamp(),
     });
 
-    // 2. Save to Student's history (Linked with specific mess ID for Me Tab sorting)
     await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('my_transactions').add({
       'mess_name': messName, 'mess_id': messUid, 'amount': 0, 'type': 'Attendance: $mealType', 'time': timeStr, 'timestamp': FieldValue.serverTimestamp(),
     });
 
-    // 3. 🚀 DECREMENT MEAL STRICTLY FOR THIS SPECIFIC MESS (Using SetOptions merge to avoid crashes)
     await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-      'remaining_meals': FieldValue.increment(-1), // Legacy global variable update
+      'remaining_meals': FieldValue.increment(-1),
       'mess_data': {
         messUid: {
-          'remaining_meals': FieldValue.increment(-1) // Specific Mess Pass Update
+          'remaining_meals': FieldValue.increment(-1)
         }
       }
     }, SetOptions(merge: true));
@@ -115,8 +114,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("✅ $mealType Attendance Marked! Enjoy.", style: const TextStyle(color: Colors.white)), backgroundColor: Colors.green));
-
-      // Wapas Dashboard bhej kar Confetti Animation trigger karo
       Navigator.pop(context, true);
     }
   }
@@ -129,9 +126,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
     }
   }
 
-  void _showLivePaymentSheet(String messUid, String messName, int priceThali, int priceMonthly, String ownerUpi) {
+  void _showLivePaymentSheet(String messUid, String messName, int priceThali, int priceMonthly, String ownerUpi, String actualStudentName) {
     showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: BhojnTheme.surfaceCard, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
-      builder: (context) { return _PaymentSheetContent(messUid: messUid, messName: messName, priceThali: priceThali, priceMonthly: priceMonthly, ownerUpi: ownerUpi); },
+      builder: (context) { return _PaymentSheetContent(messUid: messUid, messName: messName, priceThali: priceThali, priceMonthly: priceMonthly, ownerUpi: ownerUpi, studentName: actualStudentName); },
     ).whenComplete(() { setState(() => isScanning = true); cameraController.start(); });
   }
 
@@ -149,8 +146,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
 }
 
 class _PaymentSheetContent extends StatefulWidget {
-  final String messUid; final String messName; final int priceThali; final int priceMonthly; final String ownerUpi;
-  const _PaymentSheetContent({required this.messUid, required this.messName, required this.priceThali, required this.priceMonthly, required this.ownerUpi});
+  final String messUid; final String messName; final int priceThali; final int priceMonthly; final String ownerUpi; final String studentName;
+  const _PaymentSheetContent({required this.messUid, required this.messName, required this.priceThali, required this.priceMonthly, required this.ownerUpi, required this.studentName});
   @override State<_PaymentSheetContent> createState() => _PaymentSheetContentState();
 }
 
@@ -189,31 +186,40 @@ class _PaymentSheetContentState extends State<_PaymentSheetContent> {
       String timeStr = DateFormat('hh:mm a').format(DateTime.now());
 
       if (isJoinMode) {
-        // 🚀 THE ULTIMATE FIX: QR Join ab direct bypass nahi karega! Owner ko Request bhejega!
         int pendingDue = widget.priceMonthly - amount;
         if (pendingDue < 0) pendingDue = 0;
 
-        // Owner ke inbox mein request dalna
-        await FirebaseFirestore.instance.collection('users').doc(widget.messUid).collection('join_requests').doc(user.uid).set({
-          'student_name': user.displayName ?? 'Student',
-          'student_uid': user.uid,
+        // 🚀 ULTIMATE BRAHMASTRA DATA PAYLOAD: Ye saari keys cover kar lega!
+        Map<String, dynamic> requestPayload = {
+          'owner_id': widget.messUid,
+          'mess_id': widget.messUid,        // Extra safety
+          'student_id': user.uid,           // Functions aur nayi UI ke liye
+          'student_uid': user.uid,          // Purani UI ke liye
+          'student_name': widget.studentName,
           'paid_amount': amount,
           'pending_dues': pendingDue,
-          'total_allotted_meals': 60, // Default for QR Join
-          'status': 'Pending',
+          'total_allotted_meals': 60,
+          'status': 'pending',              // ⚠️ Bada 'P', kyunki Explore yahi use karta hai
           'timestamp': FieldValue.serverTimestamp()
-        });
+        };
 
-        // Owner ko verification dikhane ke liye history mein push
+        // 1. GLOBAL Collection mein bhej diya (Cloud functions aur naye raste ke liye)
+        // Doc ID 'user.uid' rakhi hai taaki Owner UI direct id pakad sake.
+        await FirebaseFirestore.instance.collection('join_requests').doc(user.uid).set(requestPayload);
+
+        // 2. SUB-COLLECTION mein bhi bhej diya (Agar Owner ka Dashboard abhi bhi purana rasta use kar raha hai toh)
+        await FirebaseFirestore.instance.collection('users').doc(widget.messUid).collection('join_requests').doc(user.uid).set(requestPayload);
+
+        // 3. Owner ko notification/history mein dikhane ke liye
         await FirebaseFirestore.instance.collection('users').doc(widget.messUid).collection('recent_transactions').add({
-          'name': user.displayName ?? "Student", 'uid': user.uid, 'amount': amount, 'type': 'Join Request (Pending Verify)', 'time': timeStr, 'isPending': true, 'timestamp': FieldValue.serverTimestamp(),
+          'name': widget.studentName, 'uid': user.uid, 'amount': amount, 'type': 'Join Request (Pending)', 'time': timeStr, 'isPending': true, 'timestamp': FieldValue.serverTimestamp(),
         });
 
       } else {
-        // Normal Daily Thali Code (Non-joiners ke liye)
+        // Normal Daily Thali Code
         String type = "Thali x$thaliQty (Pending)";
         await FirebaseFirestore.instance.collection('users').doc(widget.messUid).collection('recent_transactions').add({
-          'name': user.displayName ?? "Student", 'uid': user.uid, 'amount': amount, 'type': type, 'time': timeStr, 'isPending': true, 'timestamp': FieldValue.serverTimestamp(),
+          'name': widget.studentName, 'uid': user.uid, 'amount': amount, 'type': type, 'time': timeStr, 'isPending': true, 'timestamp': FieldValue.serverTimestamp(),
         });
         await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('my_transactions').add({
           'mess_name': widget.messName, 'mess_id': widget.messUid, 'amount': amount, 'type': type, 'time': timeStr, 'timestamp': FieldValue.serverTimestamp(),

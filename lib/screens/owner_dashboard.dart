@@ -1345,7 +1345,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
 }
 
 // ============================================================================
-// 🍽️ 4. MESS TAB (🔥 Photo Upload Bug Fixed + Advanced Analytics)
+// 🍽️ 4. MESS TAB (🔥 Photo Upload, Analytics & Complaints Inbox)
 // ============================================================================
 class _MessTab extends StatefulWidget {
   final AuthService auth;
@@ -1391,7 +1391,6 @@ class _MessTabState extends State<_MessTab> {
   }
 
   // 📸 BULLETPROOF PHOTO UPLOAD
-  // 📸 SUPER DEBUG PHOTO UPLOAD
   Future<void> _uploadPhoto(BuildContext context, List<dynamic> currentPhotos) async {
     if (currentPhotos.length >= 5) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Max 5 photos allowed! Purani delete kar. 🛑"), backgroundColor: Colors.orange));
@@ -1408,14 +1407,12 @@ class _MessTabState extends State<_MessTab> {
         File file = File(image.path);
         print("🔥 1. FILE PATH MIL GAYA: ${file.path}");
 
-        // Naya naam aur rasta
         String fileName = 'mess_photos/${widget.uid}/${DateTime.now().millisecondsSinceEpoch}.jpg';
         var ref = FirebaseStorage.instance.ref().child(fileName);
 
         print("🔥 2. UPLOADING TO FIREBASE STORAGE...");
         UploadTask uploadTask = ref.putFile(file);
 
-        // 🚀 Wait for upload to complete 100%
         TaskSnapshot snapshot = await uploadTask.whenComplete(() {
           print("🔥 3. UPLOAD TASK 100% FINISHED!");
         });
@@ -1712,6 +1709,87 @@ class _MessTabState extends State<_MessTab> {
     );
   }
 
+  // 🚀 NAYA FUNCTION: COMPLAINT INBOX WAPAS LAA DIYA
+  void _showComplaints(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: BhojnTheme.surfaceCard,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(top: 25, left: 20, right: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(child: Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(10)))),
+              const SizedBox(height: 20),
+              const Row(
+                children: [
+                  Icon(Icons.report_problem, color: Colors.orangeAccent),
+                  SizedBox(width: 10),
+                  Text("Student Complaints", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 15),
+              SizedBox(
+                height: MediaQuery.of(context).size.height * 0.5,
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance.collection('users').doc(widget.uid).collection('complaints').orderBy('timestamp', descending: true).snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: BhojnTheme.primaryOrange));
+                    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                      return const Center(child: Text("No complaints yet! You're doing great! 🎉", style: TextStyle(color: Colors.grey)));
+                    }
+
+                    return ListView.builder(
+                      itemCount: snapshot.data!.docs.length,
+                      itemBuilder: (context, index) {
+                        var doc = snapshot.data!.docs[index];
+                        var data = doc.data() as Map<String, dynamic>;
+                        String studentName = data['student_name'] ?? "Unknown Student";
+                        String issue = data['issue'] ?? "No details provided";
+                        Timestamp? ts = data['timestamp'];
+                        String dateStr = ts != null ? DateFormat('dd MMM, hh:mm a').format(ts.toDate()) : "Just now";
+
+                        return Card(
+                          color: Colors.white10,
+                          margin: const EdgeInsets.only(bottom: 10),
+                          child: ListTile(
+                            title: Text(studentName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 5),
+                                Text(issue, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                                const SizedBox(height: 5),
+                                Text(dateStr, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                              ],
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.check_circle_outline, color: Colors.green),
+                              onPressed: () async {
+                                await doc.reference.delete();
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Complaint marked as resolved! ✅"), backgroundColor: Colors.green));
+                                }
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override Widget build(BuildContext context) {
     String messName = widget.ownerData['mess_name'] ?? "My Mess Profile";
     String contactInfo = widget.ownerData['mobile'] ?? "No Contact Added";
@@ -1726,7 +1804,6 @@ class _MessTabState extends State<_MessTab> {
     String coordStr = (lat != 0 && lng != 0) ? "${lat.toStringAsFixed(3)}, ${lng.toStringAsFixed(3)}" : "Not Set";
 
     DateTime now = DateTime.now();
-    DateTime startOfToday = DateTime(now.year, now.month, now.day);
 
     int priceMonthly = int.tryParse(widget.ownerData['price_monthly']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '0') ?? 0;
     int avgThaliRate = priceMonthly > 0 ? (priceMonthly / 60).round() : 0;
@@ -1856,6 +1933,21 @@ class _MessTabState extends State<_MessTab> {
                               _incomeRow("Total Pending Dues", "₹ $totalPendingDues", color: Colors.redAccent),
                             ]
                         )
+                    ),
+                    const SizedBox(height: 25),
+
+                    // 🚀 NAYA SECTION: INBOX & FEEDBACK
+                    const Text("Inbox & Support 📥", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const SizedBox(height: 15),
+                    Container(
+                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
+                      child: ListTile(
+                        leading: const Icon(Icons.report_problem, color: Colors.orangeAccent),
+                        title: const Text("Student Complaints Inbox", style: TextStyle(color: Colors.white, fontSize: 14)),
+                        subtitle: const Text("Tap to view issues reported by students", style: TextStyle(color: Colors.grey, fontSize: 11)),
+                        trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                        onTap: () => _showComplaints(context),
+                      ),
                     ),
                     const SizedBox(height: 25),
 
