@@ -1,4 +1,4 @@
-package com.example.bhojn_app
+package com.bhojn.app
 
 import io.flutter.embedding.android.FlutterActivity
 

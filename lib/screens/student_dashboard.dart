@@ -892,13 +892,32 @@ class _ExploreTabState extends State<_ExploreTab> {
                                 final user = FirebaseAuth.instance.currentUser;
                                 if(user != null) {
                                   try {
+                                    // 🚀🚀 NAYA FIX: SPAM BLOCKER BITHA DIYA 🚀🚀
+                                    // Check karo ki is user ki pehle se koi request pending toh nahi hai
+                                    var existingReq = await FirebaseFirestore.instance.collection('join_requests').doc(user.uid).get();
+
+                                    if (existingReq.exists && existingReq.data()?['status'] == 'pending') {
+                                      if (context.mounted) {
+                                        Navigator.pop(context); // Form band kar do
+                                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                                          content: Text("Hold on! ✋ You already have a pending request. Please wait for the owner's response.", style: TextStyle(color: Colors.white)),
+                                          backgroundColor: Colors.orange,
+                                        ));
+                                      }
+                                      return; // 🛑 Yahan se aage ka code run nahi hoga! Request cancel!
+                                    }
+
+                                    // 🚀 BUG FIXED HERE: Firestore se Asli Naam Nikalo Pehle!
+                                    var studentDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+                                    String actualStudentName = studentDoc.data()?['name'] ?? user.displayName ?? 'Student';
+
                                     // 🚀 YAHAN APNI SERVICE KO BULAYA
                                     final requestService = RequestService();
                                     await requestService.sendJoinRequest(
                                       studentUid: user.uid,
-                                      studentName: user.displayName ?? 'Student',
+                                      studentName: actualStudentName,
                                       messId: messUid,
-                                      ownerUid: messUid, // BHOJN app me owner_id aur mess_id same hota hai
+                                      ownerUid: messUid,
                                       paidAmount: paidAmount,
                                       pendingDues: pendingDue,
                                       allocatedMeals: allocatedMeals,
@@ -982,7 +1001,6 @@ class _ExploreTabState extends State<_ExploreTab> {
                             itemCount: photos.length,
                             itemBuilder: (context, index) {
                               return GestureDetector(
-                                // 🚀 NAYA FEATURE: Photo pe tap karte hi full screen open hoga
                                 onTap: () {
                                   showDialog(
                                       context: context,
@@ -1126,7 +1144,6 @@ class _ExploreTabState extends State<_ExploreTab> {
                     onSelected: (bool value) { setState(() { showWithin3Km = value; }); }
                 ),
                 const SizedBox(width: 10),
-                // 🚀 NAYA FEATURE: Top Rated Filter Chip
                 FilterChip(
                     label: const Text("Top Rated 🌟", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                     selected: showHighestRated,
@@ -1168,7 +1185,6 @@ class _ExploreTabState extends State<_ExploreTab> {
 
                 if (messes.isEmpty) return const Center(child: Text("No matches found based on your filters.", style: TextStyle(color: Colors.grey)));
 
-                // 🚀 NAYA FEATURE: Smart Sorting (Nearest First OR Highest Rated First)
                 messes.sort((a, b) {
                   var dataA = a.data() as Map<String, dynamic>;
                   var dataB = b.data() as Map<String, dynamic>;
@@ -1239,7 +1255,6 @@ class _ExploreTabState extends State<_ExploreTab> {
                                     padding: const EdgeInsets.only(left: 15, right: 15, bottom: 15),
                                     child: Column(
                                         children: [
-                                          // 🚀 NAYA FEATURE: Added Lat Lng Coordinates with Copy Button
                                           Row(
                                               children: [
                                                 const Icon(Icons.location_on, color: Colors.grey, size: 16),

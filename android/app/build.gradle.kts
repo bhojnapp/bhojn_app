@@ -29,7 +29,7 @@ if (myKeystoreFile.exists()) {
 }
 
 android {
-    namespace = "com.example.bhojn_app"
+    namespace = "com.bhojn.app"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -44,7 +44,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.bhojn_app"
+        applicationId = "com.bhojn.app"
         minSdk = 24
         targetSdk = 36
         versionCode = flutter.versionCode
