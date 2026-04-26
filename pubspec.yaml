@@ -2,7 +2,7 @@ name: bhojn_app
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 12.0.0+26
+version: 12.01.0+29
 
 environment:
   sdk: ^3.11.1
@@ -53,3 +53,4 @@ flutter:
   assets:
     - assets/Thank you with confetti.json
     - assets/animations/Couple eating.json
+    - assets/animations/Chef.json

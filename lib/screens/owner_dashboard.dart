@@ -19,6 +19,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import '../services/request_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // ----------------------------------------------------------------------------
 // 🚀 HELPER: Time to Meal Converter (FIXED: 4 PM onwards is Dinner)
@@ -1709,7 +1710,6 @@ class _MessTabState extends State<_MessTab> {
     );
   }
 
-  // 🚀 NAYA FUNCTION: COMPLAINT INBOX WAPAS LAA DIYA
   void _showComplaints(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -1787,6 +1787,63 @@ class _MessTabState extends State<_MessTab> {
           ),
         );
       },
+    );
+  }
+
+  // 🚀 NAYA FUNCTION: Owner Help & Feedback Bottom Sheet
+  void _showHelpBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+        context: context,
+        backgroundColor: BhojnTheme.surfaceCard,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (context) {
+          return Padding(
+            padding: const EdgeInsets.all(25.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text("Help & Support 🎧", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                const Text("App me koi dikkat aa rahi hai? Humse direct connect karo!", style: TextStyle(color: Colors.grey, fontSize: 14), textAlign: TextAlign.center),
+                const SizedBox(height: 25),
+
+                // WhatsApp Button
+                ListTile(
+                  onTap: () async {
+                    final Uri url = Uri.parse('https://wa.me/919011082875?text=Hello%20BHOJN%20Support,%20I%20am%20a%20Mess%20Owner%20and%20need%20help');
+                    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("WhatsApp open nahi ho paya!")));
+                    }
+                  },
+                  tileColor: Colors.white.withOpacity(0.05),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  leading: const Icon(Icons.chat, color: Colors.greenAccent),
+                  title: const Text("Message on WhatsApp", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: const Text("+91 9011082875", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  trailing: const Icon(Icons.open_in_new, color: Colors.grey, size: 16),
+                ),
+                const SizedBox(height: 15),
+
+                // Email Button
+                ListTile(
+                  onTap: () async {
+                    final Uri url = Uri.parse('mailto:bhojn.support@gmail.com?subject=BHOJN Owner Support Needed');
+                    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Email app open nahi ho paya!")));
+                    }
+                  },
+                  tileColor: Colors.white.withOpacity(0.05),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  leading: const Icon(Icons.email, color: BhojnTheme.primaryOrange),
+                  title: const Text("Send an Email", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: const Text("bhojn.support@gmail.com", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  trailing: const Icon(Icons.open_in_new, color: Colors.grey, size: 16),
+                ),
+                const SizedBox(height: 10),
+              ],
+            ),
+          );
+        }
     );
   }
 
@@ -1936,17 +1993,29 @@ class _MessTabState extends State<_MessTab> {
                     ),
                     const SizedBox(height: 25),
 
-                    // 🚀 NAYA SECTION: INBOX & FEEDBACK
                     const Text("Inbox & Support 📥", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                     const SizedBox(height: 15),
                     Container(
                       decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(15)),
-                      child: ListTile(
-                        leading: const Icon(Icons.report_problem, color: Colors.orangeAccent),
-                        title: const Text("Student Complaints Inbox", style: TextStyle(color: Colors.white, fontSize: 14)),
-                        subtitle: const Text("Tap to view issues reported by students", style: TextStyle(color: Colors.grey, fontSize: 11)),
-                        trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                        onTap: () => _showComplaints(context),
+                      child: Column(
+                        children: [
+                          ListTile(
+                            leading: const Icon(Icons.report_problem, color: Colors.orangeAccent),
+                            title: const Text("Student Complaints Inbox", style: TextStyle(color: Colors.white, fontSize: 14)),
+                            subtitle: const Text("Tap to view issues reported by students", style: TextStyle(color: Colors.grey, fontSize: 11)),
+                            trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                            onTap: () => _showComplaints(context),
+                          ),
+                          const Divider(color: Colors.white10, height: 1),
+                          // 🚀 NAYA: Help & Feedback Button
+                          ListTile(
+                            leading: const Icon(Icons.help_outline, color: Colors.white70),
+                            title: const Text("Help & Support", style: TextStyle(color: Colors.white, fontSize: 14)),
+                            subtitle: const Text("Contact us via WhatsApp or Email", style: TextStyle(color: Colors.grey, fontSize: 11)),
+                            trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                            onTap: () => _showHelpBottomSheet(context),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 25),
@@ -2048,6 +2117,5 @@ class _MessTabState extends State<_MessTab> {
   );
 }
 
-// Ye sabse last mein daal de bhai
 class _WavingHand extends StatefulWidget { const _WavingHand({super.key}); @override State<_WavingHand> createState() => _WavingHandState(); }
 class _WavingHandState extends State<_WavingHand> with SingleTickerProviderStateMixin { late AnimationController _controller; late Animation<double> _animation; @override void initState() { super.initState(); _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))..repeat(reverse: true); _animation = Tween<double>(begin: -0.05, end: 0.1).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut)); } @override void dispose() { _controller.dispose(); super.dispose(); } @override Widget build(BuildContext context) => RotationTransition(turns: _animation, child: const Text("👋", style: TextStyle(fontSize: 18))); }

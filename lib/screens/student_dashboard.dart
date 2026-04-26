@@ -66,6 +66,37 @@ class _StudentDashboardState extends State<StudentDashboard> {
       "Engineer ki life mein do hi problem hain: Ek 'Out of Syllabus' aur doosra 'Paneer ki sabzi mein Paneer kahan hai?' 🕵️‍♂️",
       "Mess wale bhaiya ka confidence dekho, paani daalke bolte hain 'Dal fry hai'! 😂",
       "Assignments aur Mess ka bill, hamesha due date ke baad hi yaad aate hain! ⏳",
+
+      // 🔥 Naye Bachelor/Hostel Wale (29 Naye Bomb 💣)
+      "Hostel ki 'Dal' aur ex ka 'Pyaar', dono kitne bhi pakka lo, patle hi rehte hain! 💔🍲",
+      "Mahine ke shuru mein 'Bhai paneer mangwa', mahine ke aakhir mein 'Bhai Parle-G bacha hai kya?' 🍪📉",
+      "Hostel mein alarm khud ke uthne ke liye nahi, roommates ki neend kharab karne ke liye lagaya jata hai! ⏰😂",
+      "Kapde dhone ka bachelor rule: Jab tak almari ekdum khali na ho jaye, tab tak balti ko haath nahi lagana! 👕🛁",
+      "Ghar ki yaad sabse zyada tab aati hai, jab thand mein subah apne jhoothe bartan dhone padte hain! 🥶🍽️",
+      "Mess ki roti ko modna padta hai ya todna padta hai, aaj tak research chalu hai! 🥏🤔",
+      "Sunday special ke naam pe wahi aalu-matar milte hain, bas usme aalu aur matar ka ratio thoda badh jata hai! 🥔🌿",
+      "Bachelor life ka sach: Roommate ki Maggi hamesha apni Maggi se zyada tasty lagti hai! 🍜🤤",
+      "Subah uth ke sabse bada decision: Aaj college jau, ya neend puri karu? 😴🎓",
+      "Hostel mein shampoo aur toothpaste khatam hone ke baad bhi 3 din tak chalte hain, ye humara asli talent hai! 🧴💧",
+      "Aadhi raat ko bhookh lagne par mess band hota hai, aur Zomato out of budget. Fir yaad aati hai maa ki rasoi! 😭🍔",
+      "Mess wali aunty ka 'Beta aur kha lo' sunke lagta hai ghar aa gaye, phir roti chabate hi reality hit hoti hai! 🥲🏡",
+      "Wi-Fi ki speed aur mess ki sabzi ka taste, dono hamesha expectations se kam hi hote hain! 📶📉",
+      "Hostel mein 'Private' word ki koi value nahi, sab 'Open Source' (Sabka) hota hai! 🤝😅",
+      "Room ki safai tabhi hoti hai jab ya toh mummy aane wali ho, ya phir room me chalne ki jagah na bachi ho! 🧹🗑️",
+      "Bachelors ke pass hamesha 2 hi aasan raste hote hain: 'Bhai kal se pakka padhunga' aur 'Bhai aaj bahar khaate hain!' 🍕📚",
+      "Mess ke chawal aur crush ka reply... dono hamesha thande hi aate hain! 🍚❄️",
+      "Hostel fridge ka rule: Jo dikha, wo mera. Jisne rakha, wo dekhta reh gaya! 🥛👀",
+      "Duniya mein sabse zyada wait aache din ka nahi, mess mein Sunday wale Chicken/Paneer ka hota hai! 🍗⏳",
+      "Pura hafta sochne mein nikal jata hai ki 'Weekend pe kya karenge?', aur weekend sote-sote nikal jata hai! 🛌📆",
+      "PG/Hostel ka sabse bada jhooth: 'Main uth gaya hu, bas 5 minute mein ready hoke aata hu!' ⏱️🏃‍♂️",
+      "Month-end mein UPI PIN yaad rehta hai, par bank balance dekhne ki himmat nahi hoti! 💸🫣",
+      "Mess ki paneer ki sabzi ek 'Treasure Hunt' hai, jisme paneer kisi ek lucky winner ko hi milta hai! 🏴‍☠️🧀",
+      "Ghar walon ko lagta hai beta padhai kar raha hai, aur beta yahan soch raha hai raat ko Maggi kaun banayega! 🍜🧠",
+      "Bhookh lagne pe 'Kuch bhi chalega' bolne wale dost hi sabse zyada nakhre karte hain mess me! 🤦‍♂️😂",
+      "Exam se pehle wali raat aur mess ka raat ka khana, dono se bas bhagwan hi bacha sakta hai! 🙏🌙",
+      "Hostel ki dosti ka ek hi test hai: 'Bhai tere hisse ka paneer/chicken mujhe dega kya?' 🤝🍲",
+      "Ek bachelor ka bed sone se zyada laptop aur dhule hue kapde rakhne ke kaam aata hai! 💻🛏️",
+      "Zindagi aur mess ki sabzi, dono mein 'namak' swaadanusaar kabhi nahi hota, ya toh zyada ya ekdum gayab! 🧂😬"
     ];
     String randomJoke = jokes[Random().nextInt(jokes.length)];
 
@@ -156,7 +187,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
             _isInitialLoad = false;
           }
 
-          if ((studentData['is_chutkula_on'] ?? true) && !_hasShownJoke) {
+          if ((studentData['is_chutkula_on'] ?? false) && !_hasShownJoke) {
             _hasShownJoke = true;
             WidgetsBinding.instance.addPostFrameCallback((_) => _showDailyChutkula());
           }
@@ -786,7 +817,7 @@ class _ExploreTabState extends State<_ExploreTab> {
   String searchQuery = "";
   bool showOnlyOpen = false;
   bool showWithin3Km = false;
-  bool showHighestRated = false; // 🚀 NAYA FEATURE: Top Rated Filter
+  bool showHighestRated = false;
 
   double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
     if (lat1 == 0 || lon1 == 0 || lat2 == 0 || lon2 == 0) return 0.0;
@@ -892,41 +923,61 @@ class _ExploreTabState extends State<_ExploreTab> {
                                 final user = FirebaseAuth.instance.currentUser;
                                 if(user != null) {
                                   try {
-                                    // 🚀🚀 NAYA FIX: SPAM BLOCKER BITHA DIYA 🚀🚀
-                                    // Check karo ki is user ki pehle se koi request pending toh nahi hai
+                                    // 🚀 SPAM BLOCKER
                                     var existingReq = await FirebaseFirestore.instance.collection('join_requests').doc(user.uid).get();
 
                                     if (existingReq.exists && existingReq.data()?['status'] == 'pending') {
                                       if (context.mounted) {
-                                        Navigator.pop(context); // Form band kar do
+                                        Navigator.pop(context);
                                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                                           content: Text("Hold on! ✋ You already have a pending request. Please wait for the owner's response.", style: TextStyle(color: Colors.white)),
                                           backgroundColor: Colors.orange,
                                         ));
                                       }
-                                      return; // 🛑 Yahan se aage ka code run nahi hoga! Request cancel!
+                                      return;
                                     }
 
-                                    // 🚀 BUG FIXED HERE: Firestore se Asli Naam Nikalo Pehle!
                                     var studentDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
                                     String actualStudentName = studentDoc.data()?['name'] ?? user.displayName ?? 'Student';
 
-                                    // 🚀 YAHAN APNI SERVICE KO BULAYA
-                                    final requestService = RequestService();
-                                    await requestService.sendJoinRequest(
-                                      studentUid: user.uid,
-                                      studentName: actualStudentName,
-                                      messId: messUid,
-                                      ownerUid: messUid,
-                                      paidAmount: paidAmount,
-                                      pendingDues: pendingDue,
-                                      allocatedMeals: allocatedMeals,
-                                    );
+                                    // 🚀🚀 THE BRAHMASTRA FIX: Direct Firestore instead of RequestService! 🚀🚀
+                                    String timeStr = DateFormat('hh:mm a').format(DateTime.now());
+
+                                    Map<String, dynamic> requestPayload = {
+                                      'owner_id': messUid,
+                                      'mess_id': messUid,
+                                      'student_id': user.uid,
+                                      'student_uid': user.uid,
+                                      'student_name': actualStudentName,
+                                      'paid_amount': paidAmount,
+                                      'pending_dues': pendingDue,
+                                      'total_allotted_meals': allocatedMeals,
+                                      'plan_type': allocatedMeals == 30 ? '15 Days' : 'Monthly',
+                                      'status': 'pending',
+                                      'timestamp': FieldValue.serverTimestamp()
+                                    };
+
+                                    // 1. Global Requests DB (Owner Dashboard yahan se padhta hai)
+                                    await FirebaseFirestore.instance.collection('join_requests').doc(user.uid).set(requestPayload);
+
+                                    // 2. Sub-collection (Backup)
+                                    await FirebaseFirestore.instance.collection('users').doc(messUid).collection('join_requests').doc(user.uid).set(requestPayload);
+
+                                    // 3. Owner's Notification History
+                                    await FirebaseFirestore.instance.collection('users').doc(messUid).collection('recent_transactions').add({
+                                      'name': actualStudentName,
+                                      'uid': user.uid,
+                                      'amount': paidAmount,
+                                      'type': 'Join Request (${allocatedMeals == 30 ? "15 Days" : "1 Month"})',
+                                      'time': timeStr,
+                                      'isPending': true,
+                                      'timestamp': FieldValue.serverTimestamp(),
+                                    });
 
                                     if (context.mounted) {
-                                      Navigator.pop(context);
-                                      Navigator.pop(context);
-                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request Sent to Owner! 🚀"), backgroundColor: Colors.green));
+                                      Navigator.pop(context); // Request form band
+                                      Navigator.pop(context); // View info panel band
+                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Request Sent to Owner! 🚀✅"), backgroundColor: Colors.green));
                                     }
                                   } catch (e) {
                                     if (context.mounted) {
@@ -1356,6 +1407,63 @@ class _MeTabState extends State<_MeTab> {
     }
   }
 
+  // 🚀 NAYA FUNCTION: Help & Feedback Bottom Sheet
+  void _showHelpBottomSheet(BuildContext context) {
+    showModalBottomSheet(
+        context: context,
+        backgroundColor: BhojnTheme.surfaceCard,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (context) {
+          return Padding(
+            padding: const EdgeInsets.all(25.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text("Help & Support 🎧", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                const Text("App me koi dikkat aa rahi hai? Humse direct connect karo!", style: TextStyle(color: Colors.grey, fontSize: 14), textAlign: TextAlign.center),
+                const SizedBox(height: 25),
+
+                // WhatsApp Button
+                ListTile(
+                  onTap: () async {
+                    final Uri url = Uri.parse('https://wa.me/919011082875?text=Hello%20BHOJN%20Support,%20I%20need%20help');
+                    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("WhatsApp open nahi ho paya!")));
+                    }
+                  },
+                  tileColor: Colors.white.withOpacity(0.05),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  leading: const Icon(Icons.chat, color: Colors.greenAccent),
+                  title: const Text("Message on WhatsApp", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: const Text("+91 9011082875", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  trailing: const Icon(Icons.open_in_new, color: Colors.grey, size: 16),
+                ),
+                const SizedBox(height: 15),
+
+                // Email Button
+                ListTile(
+                  onTap: () async {
+                    final Uri url = Uri.parse('mailto:bhojn.support@gmail.com?subject=BHOJN App Support Needed');
+                    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Email app open nahi ho paya!")));
+                    }
+                  },
+                  tileColor: Colors.white.withOpacity(0.05),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  leading: const Icon(Icons.email, color: BhojnTheme.primaryOrange),
+                  title: const Text("Send an Email", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: const Text("bhojn.support@gmail.com", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  trailing: const Icon(Icons.open_in_new, color: Colors.grey, size: 16),
+                ),
+                const SizedBox(height: 10),
+              ],
+            ),
+          );
+        }
+    );
+  }
+
   void _showAttendanceHistory(BuildContext context) {
     String validMessId = selectedHistoryMessId ?? "unknown";
 
@@ -1586,7 +1694,9 @@ class _MeTabState extends State<_MeTab> {
     String fullName = widget.studentData['name'] ?? "Bhojni Student";
     String email = widget.studentData['email'] ?? "No Email";
     String mobile = widget.studentData['mobile'] ?? "No Mobile";
-    bool chutkuleOn = widget.studentData['is_chutkula_on'] ?? true;
+
+    // 🚀 THE FIX: Yahan '?? true' ko '?? false' kar diya. Ab default OFF rahega!
+    bool chutkuleOn = widget.studentData['is_chutkula_on'] ?? false;
 
     return SingleChildScrollView(
         padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 80),
@@ -1644,12 +1754,11 @@ class _MeTabState extends State<_MeTab> {
                         ),
                         const Divider(color: Colors.white10, height: 1),
                         ListTile(
-                            leading: const Icon(Icons.help_outline, color: Colors.white70),
-                            title: const Text("Help & Feedback", style: TextStyle(color: Colors.white)),
-                            trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                            onTap: () {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Help Center opening soon...")));
-                            }
+                          leading: const Icon(Icons.help_outline, color: Colors.white70),
+                          title: const Text("Help & Feedback", style: TextStyle(color: Colors.white)),
+                          trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                          // 🚀 THE FIX: Bottom sheet function connect kar diya!
+                          onTap: () => _showHelpBottomSheet(context),
                         )
                       ]
                   )

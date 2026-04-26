@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
 import '../widgets/custom_widgets.dart';
 import '../theme/app_theme.dart';
 import 'auth_screen.dart';
+import '../main.dart'; // AuthWrapper ke liye
 
 // ============================================================================
 // 🎓 STUDENT SIGNUP SCREEN
@@ -27,16 +29,14 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
 
   bool isLocating = false;
   bool isLoading = false;
-  Position? studentLocation; // Real GPS Location
+  Position? studentLocation;
 
-  // 🚀 NAYA FEATURE: Real GPS Location Fetcher (Strict)
   Future<void> _fetchLocation() async {
     setState(() => isLocating = true);
 
     bool serviceEnabled;
     LocationPermission permission;
 
-    // Check if GPS is ON
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bhai pehle phone ka GPS (Location) ON kar le! 🗺️"), backgroundColor: Colors.orange));
@@ -44,7 +44,6 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
       return;
     }
 
-    // Check Permissions
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -80,7 +79,6 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
       return;
     }
 
-    // 🚀 STRICT CHECK: Location mandatory for good Explore experience
     if (studentLocation == null) {
       showDialog(
           context: context,
@@ -108,15 +106,22 @@ class _StudentSignupScreenState extends State<StudentSignupScreen> {
             'alt_mobile': _altMobileCtrl.text.trim(),
             'college': _collegeCtrl.text.trim(),
             'address': _addressCtrl.text.trim(),
-            // 🚀 REAL DATA: Ab dummy data ki jagah exact GPS value cloud pe jayegi
             'lat': studentLocation!.latitude,
             'lng': studentLocation!.longitude,
           }
       );
+
+      if (mounted) {
+        setState(() => isLoading = false);
+        // 🚀 THE FIX: Duplicate AuthWrapper push hataya aur root pe pop kar diya (Login jaisa)
+        Navigator.popUntil(context, (route) => route.isFirst);
+      }
+
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      setState(() => isLoading = false);
+      String cleanMessage = e.toString().replaceAll('Exception: ', '').split('] ').last.trim();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(cleanMessage)));
     }
-    if (mounted) setState(() => isLoading = false);
   }
 
   @override
@@ -214,9 +219,8 @@ class _OwnerSignupScreenState extends State<OwnerSignupScreen> {
 
   bool isLocating = false;
   bool isLoading = false;
-  Position? messLocation; // Real GPS Location
+  Position? messLocation;
 
-  // 🚀 NAYA FEATURE: Real GPS Location Fetcher for Owner
   Future<void> _fetchLocation() async {
     setState(() => isLocating = true);
 
@@ -265,7 +269,6 @@ class _OwnerSignupScreenState extends State<OwnerSignupScreen> {
       return;
     }
 
-    // 🚀 STRICT CHECK: Location mandatory for Owner so it shows in distance calculations
     if (messLocation == null) {
       showDialog(
           context: context,
@@ -293,17 +296,24 @@ class _OwnerSignupScreenState extends State<OwnerSignupScreen> {
             'alt_mobile': _altMobileCtrl.text.trim(),
             'address': _addressCtrl.text.trim(),
             'upi_id': _upiCtrl.text.trim(),
-            // 🚀 REAL DATA: Exact GPS value of the Mess
             'lat': messLocation!.latitude,
             'lng': messLocation!.longitude,
             'price_thali': _thaliCtrl.text.isNotEmpty ? _thaliCtrl.text : "N/A",
             'price_monthly': _monthlyCtrl.text.isNotEmpty ? _monthlyCtrl.text : "N/A",
           }
       );
+
+      if (mounted) {
+        setState(() => isLoading = false);
+        // 🚀 THE FIX: Duplicate AuthWrapper push hataya aur root pe pop kar diya (Login jaisa)
+        Navigator.popUntil(context, (route) => route.isFirst);
+      }
+
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      setState(() => isLoading = false);
+      String cleanMessage = e.toString().replaceAll('Exception: ', '').split('] ').last.trim();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(cleanMessage)));
     }
-    if (mounted) setState(() => isLoading = false);
   }
 
   @override
