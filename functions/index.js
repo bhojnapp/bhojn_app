@@ -8,7 +8,7 @@ admin.initializeApp();
 // 👑 TO OWNER NOTIFICATIONS (Student se Owner tak)
 // ============================================================================
 
-// 1. 🚀 NAYA RASTA: Naya Student Join Request Bheje (Global Collection se)
+// 1. Naya Student Join Request Bheje
 exports.notifyOwnerOnNewRequest = onDocumentCreated("join_requests/{reqId}", async (event) => {
   const snap = event.data;
   if (!snap) return;
@@ -34,7 +34,7 @@ exports.notifyOwnerOnPaymentClaim = onDocumentCreated("users/{ownerId}/recent_tr
     await sendNotificationToUser(ownerId, "Payment Verification Required 💸", `${studentName} has reported a payment of ₹${amt}. Please verify this transaction.`);
   }
 
-  // 🚀 UPDATE: Live Chowkidar (Scan Notification) with Dynamic Title
+  // Live Chowkidar (Scan Notification)
   if (data.isPending === false && (!data.amount || data.amount === 0 || data.amount === "0")) {
       const studentName = data.name || "Student";
       const mealType = data.type || "Meal";
@@ -44,7 +44,6 @@ exports.notifyOwnerOnPaymentClaim = onDocumentCreated("users/{ownerId}/recent_tr
         if (ownerDoc.exists) {
             const wantsNotification = ownerDoc.data().notify_on_scan !== false;
             if (wantsNotification) {
-                // Yahan apan ne Title mein Student ka naam aur Session daal diya!
                 const title = `${studentName} - ${mealType} 🍽️`;
                 const body = `Pass scanned successfully.`;
                 await sendNotificationToUser(ownerId, title, body);
@@ -65,7 +64,6 @@ exports.notifyOwnerOnComplaint = onDocumentCreated("users/{ownerId}/complaints/{
   await sendNotificationToUser(ownerId, "New Feedback/Report 🚨", "A student has submitted a new report. Please check your dashboard for details.");
 });
 
-
 // ============================================================================
 // 👨‍🎓 TO STUDENT NOTIFICATIONS (Owner se Student tak)
 // ============================================================================
@@ -83,7 +81,7 @@ exports.notifyStudentOnPaymentVerify = onDocumentUpdated("users/{ownerId}/recent
   }
 });
 
-// 5. 🚀 NAYA RASTA: Owner Student ki Join Request Accept ya Reject Kar Le
+// 5. Owner Student ki Join Request Accept ya Reject Kar Le
 exports.notifyStudentOnAcceptOrReject = onDocumentUpdated("join_requests/{reqId}", async (event) => {
   const before = event.data.before.data();
   const after = event.data.after.data();
@@ -126,9 +124,70 @@ exports.notifyStudentsOnMessUpdates = onDocumentUpdated("users/{ownerId}", async
   }
 });
 
+// ============================================================================
+// 🚨 SMART SYSTEM: DISCONNECT NOTIFICATIONS (LEAVE / REMOVE)
+// ============================================================================
+
+// 7. Generic System Notification (For future alerts from app directly)
+exports.pushSystemNotifications = onDocumentCreated("users/{uid}/notifications/{notifId}", async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+
+  const data = snap.data();
+  const uid = event.params.uid;
+
+  if (data.title && data.body) {
+    await sendNotificationToUser(uid, data.title, data.body);
+  }
+});
+
+// 8. 🚀 NAYA MASTERSTROKE: Notify BOTH Owner and Student on Disconnect
+exports.notifyOnMessDisconnect = onDocumentUpdated("users/{studentId}", async (event) => {
+  const before = event.data.before.data();
+  const after = event.data.after.data();
+
+  // Sirf students track honge
+  if (after.role !== 'student') return;
+
+  const beforeMesses = before.active_messes || [];
+  const afterMesses = after.active_messes || [];
+
+  // Agar active_messes kam hue hain (Chahe student leave kare ya owner remove kare)
+  const removedMesses = beforeMesses.filter(messId => !afterMesses.includes(messId));
+
+  if (removedMesses.length > 0) {
+    const studentName = after.name || "A student";
+    const studentId = event.params.studentId;
+
+    for (const messId of removedMesses) {
+      // Owner ka naam fetch karte hain taaki notification professional lage
+      let messName = "The Mess";
+      try {
+        const messDoc = await admin.firestore().collection("users").doc(messId).get();
+        if (messDoc.exists) messName = messDoc.data().mess_name || "The Mess";
+      } catch (e) {
+        console.error("Error fetching mess details: ", e);
+      }
+
+      // 📨 1. OWNER KO BATAO KI STUDENT GAYA
+      await sendNotificationToUser(
+        messId,
+        "Student Disconnected 🚫",
+        `${studentName} is no longer connected to your mess pass. Access revoked.`
+      );
+
+      // 📨 2. STUDENT KO BATAO KI MESS KA ACCESS KHATAM
+      await sendNotificationToUser(
+        studentId,
+        "Mess Access Revoked 🛑",
+        `You are no longer connected to ${messName}. You cannot scan their QR code anymore.`
+      );
+    }
+  }
+});
 
 // ============================================================================
-// 🚀 FIXED FEATURE: The "Vasooli" Button (Send Due Reminders) v2
+// 🚀 The "Vasooli" Button (Send Due Reminders)
 // ============================================================================
 exports.remindDefaulters = onCall(async (request) => {
     if (!request.auth) {
@@ -184,7 +243,6 @@ exports.remindDefaulters = onCall(async (request) => {
         throw new HttpsError("internal", "Server error while sending reminders.");
     }
 });
-
 
 // ============================================================================
 // 🛠️ HELPER FUNCTIONS

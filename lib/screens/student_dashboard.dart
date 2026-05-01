@@ -11,6 +11,7 @@ import '../services/auth_service.dart';
 import 'scanner_screen.dart';
 import '../notification_services.dart';
 import '../services/request_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ----------------------------------------------------------------------------
 // 🚀 HELPER: Time to Meal Converter
@@ -41,7 +42,9 @@ class _StudentDashboardState extends State<StudentDashboard> {
   int _currentIndex = 0;
   bool _isInitialLoad = true;
   final User? user = FirebaseAuth.instance.currentUser;
-  bool _hasShownJoke = false;
+
+  // 🚀 FIX: Ab yahan session flag ka naam change karke Attempted kar diya hai
+  bool _hasAttemptedChutkula = false;
 
   String? _globalSelectedMessId;
 
@@ -57,6 +60,26 @@ class _StudentDashboardState extends State<StudentDashboard> {
         notificationServices.saveDeviceToken(user!.uid, 'users');
         notificationServices.firebaseInit();
       });
+    }
+  }
+
+  // 🚀 BRAHMASTRA FIX: Strict 1 Popup Per Day Logic
+  Future<void> _checkAndShowChutkula() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    // Aaj ki date nikal rahe hain (e.g., "2026-05-01")
+    String todayDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+    // Purani date nikal rahe hain jo memory mein save hai
+    String? lastShownDate = prefs.getString('last_chutkula_date');
+
+    if (lastShownDate != todayDate) {
+      // Agar date match nahi hui (matlab aaj nahi dikha hai), toh date save karo aur show karo
+      await prefs.setString('last_chutkula_date', todayDate);
+      if (mounted) {
+        _showDailyChutkula();
+      }
+    } else {
+      print("Chutkula aaj ka ho gaya bhai, ab kal aayega! 🛑");
     }
   }
 
@@ -121,8 +144,9 @@ class _StudentDashboardState extends State<StudentDashboard> {
     showDialog(
         context: context,
         barrierColor: Colors.black87,
-        barrierDismissible: false,
+        barrierDismissible: true, // 🚀 FIX: Ab bahar click karne se bhi hat jayega
         builder: (context) {
+          // Auto-close in 3.5s just in case they don't click
           Future.delayed(const Duration(milliseconds: 3500), () {
             if (mounted && Navigator.canPop(context)) {
               Navigator.pop(context);
@@ -137,14 +161,30 @@ class _StudentDashboardState extends State<StudentDashboard> {
               children: [
                 Lottie.asset('assets/Thank you with confetti.json', width: 250, height: 250, repeat: false),
                 const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.green, width: 1.5)
+
+                // 🚀 NAYA: Clickable Button to dismiss instantly
+                GestureDetector(
+                  onTap: () {
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context); // Dabate hi turant gayab!
+                    }
+                  },
+                  child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.green, width: 1.5)
+                      ),
+                      child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text("Scan Successful! 🎉", style: TextStyle(color: Colors.green, fontSize: 18, fontWeight: FontWeight.bold)),
+                            SizedBox(width: 10),
+                            Icon(Icons.cancel_rounded, color: Colors.green, size: 22),
+                          ]
+                      )
                   ),
-                  child: const Text("Scan Successful! 🎉", style: TextStyle(color: Colors.green, fontSize: 18, fontWeight: FontWeight.bold)),
                 )
               ],
             ),
@@ -187,9 +227,10 @@ class _StudentDashboardState extends State<StudentDashboard> {
             _isInitialLoad = false;
           }
 
-          if ((studentData['is_chutkula_on'] ?? false) && !_hasShownJoke) {
-            _hasShownJoke = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) => _showDailyChutkula());
+          // 🚀 MAIN FIX: Yahan ab direct showDailyChutkula() nahi bulayenge, checkAndShowChutkula() ko bulayenge
+          if ((studentData['is_chutkula_on'] ?? false) && !_hasAttemptedChutkula) {
+            _hasAttemptedChutkula = true; // Taaki stream baar baar call na mare ek session me
+            WidgetsBinding.instance.addPostFrameCallback((_) => _checkAndShowChutkula());
           }
 
           // 🚀 REAL GPS LINK: Student ki location nikali yahan se
@@ -206,7 +247,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                 setState(() { _globalSelectedMessId = newId; });
               },
             ),
-            _ExploreTab(studentLat: currentLat, studentLng: currentLng), // 🚀 And pass kardi Explore ko
+            _ExploreTab(studentLat: currentLat, studentLng: currentLng),
             const _HostelsTab(),
             _MeTab(activeMesses: activeMesses, studentData: studentData, auth: AuthService(), uid: user!.uid)
           ];
@@ -216,14 +257,10 @@ class _StudentDashboardState extends State<StudentDashboard> {
             appBar: AppBar(
               backgroundColor: Colors.transparent,
               elevation: 0,
-
-              // 🚀 THE IOS KILLER FIX: Ye lagate hi sab left me chipak jayega!
               centerTitle: false,
-              titleSpacing: 20, // Edge se left spacing
-
-              // 🔥 1. LEFT SIDE (Sirf BHOJN aur OPEN/CLOSED button)
+              titleSpacing: 20,
               title: Row(
-                  mainAxisSize: MainAxisSize.min, // Jitni zaroorat utni jagah lega
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text('BHOJN', style: TextStyle(fontWeight: FontWeight.w900, color: BhojnTheme.primaryOrange, fontStyle: FontStyle.italic, fontSize: 24)),
 
@@ -234,7 +271,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
                           builder: (context, messSnap) {
                             if (!messSnap.hasData || !messSnap.data!.exists) return const SizedBox();
 
-                            // Safe Extraction jo humne pichle fix mein kiya tha
                             var messData = messSnap.data!.data() as Map<String, dynamic>?;
                             bool isOpen = true;
                             if (messData != null && messData.containsKey('is_open')) {
@@ -263,21 +299,19 @@ class _StudentDashboardState extends State<StudentDashboard> {
                     ],
                   ]
               ),
-
-              // 🔥 2. RIGHT SIDE (Hello Name aur 👋) - Ye automatically right me jayega
               actions: [
                 Padding(
                   padding: const EdgeInsets.only(right: 20),
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 130), // Laal patti aane se rokega
+                    constraints: const BoxConstraints(maxWidth: 130),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Flexible(
+                        Flexible(
                           child: Text(
-                            "Hello", // Yahan apna dynamic naam (user.displayName) daal dena
-                            style: TextStyle(color: Colors.white, fontSize: 16),
+                            studentData['name']?.toString().split(" ")[0] ?? "Hello",
+                            style: const TextStyle(color: Colors.white, fontSize: 16),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -356,7 +390,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
 }
 
 // ============================================================================
-// 🏠 1. HOME TAB (Advanced Custom Dues & Anti-Spam)
+// 🏠 1. HOME TAB (Advanced Custom Dues, Anti-Spam & Leave Mess Logic)
 // ============================================================================
 class _HomeTab extends StatefulWidget {
   final List<String> activeMesses;
@@ -390,6 +424,77 @@ class _HomeTabState extends State<_HomeTab> {
       };
     }
     return { 'total_allotted_meals': 60, 'remaining_meals': 60, 'pending_dues': 0 };
+  }
+
+  // 🚀 NAYA JUGAAD: Backend logic to actually leave the mess
+  void _executeLeaveMess(String messId) async {
+    try {
+      var studentDoc = await FirebaseFirestore.instance.collection('users').doc(widget.studentUid).get();
+      if (studentDoc.exists) {
+        var data = studentDoc.data()!;
+        List<dynamic> activeMesses = data['active_messes'] ?? [];
+        activeMesses.remove(messId);
+
+        Map<String, dynamic> updates = {'active_messes': activeMesses};
+
+        // Agar uska primary mess yahi tha toh usko empty kar do
+        if (data['joined_mess_id'] == messId) {
+          updates['joined_mess_id'] = '';
+        }
+
+        await FirebaseFirestore.instance.collection('users').doc(widget.studentUid).update(updates);
+
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("You have successfully left the mess. 🚫"), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+    }
+  }
+
+  // 🚀 NAYA JUGAAD: First Warning Popup
+  void _confirmLeaveMess1(BuildContext context, String messName, String messId) {
+    showDialog(
+        context: context,
+        builder: (context1) => AlertDialog(
+            backgroundColor: BhojnTheme.surfaceCard,
+            title: Text("Leave $messName?", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            content: const Text("Are you sure you want to leave this mess? You won't be able to scan their QR or view their menu anymore.", style: TextStyle(color: Colors.white70)),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context1), child: const Text("Cancel", style: TextStyle(color: Colors.grey))),
+              ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                  onPressed: () {
+                    Navigator.pop(context1); // Pehla band
+                    _confirmLeaveMess2(context, messName, messId); // Dusra kholo
+                  },
+                  child: const Text("Yes, Proceed", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+              )
+            ]
+        )
+    );
+  }
+
+  // 🚀 NAYA JUGAAD: Second & Final Warning Popup
+  void _confirmLeaveMess2(BuildContext context, String messName, String messId) {
+    showDialog(
+        context: context,
+        builder: (context2) => AlertDialog(
+            backgroundColor: BhojnTheme.surfaceCard,
+            title: const Text("Final Warning ⚠️", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            content: const Text("Leaving means your current pass link will be broken. To join back, you must send a new request and owner must approve it again. Leave anyway?", style: TextStyle(color: Colors.white70)),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context2), child: const Text("Cancel", style: TextStyle(color: Colors.grey))),
+              ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                  onPressed: () {
+                    Navigator.pop(context2);
+                    _executeLeaveMess(messId); // Asli action yahan perform hoga!
+                  },
+                  child: const Text("LEAVE MESS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+              )
+            ]
+        )
+    );
   }
 
   void _handlePendingDues(BuildContext context, Map<String, dynamic> messData, String messUid, int totalAllottedMeals) {
@@ -735,6 +840,7 @@ class _HomeTabState extends State<_HomeTab> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // 🚀 THE DIGITAL MESS PASS
                       Container(
                         width: double.infinity, padding: const EdgeInsets.all(20), decoration: BoxDecoration(gradient: LinearGradient(colors: [BhojnTheme.primaryOrange, BhojnTheme.primaryOrange.withOpacity(0.7)]), borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: BhojnTheme.primaryOrange.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 5))]),
                         child: Column(
@@ -743,7 +849,28 @@ class _HomeTabState extends State<_HomeTab> {
                             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text("Digital Mess Pass", style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)), Text(messName, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900))]), const CircleAvatar(backgroundColor: Colors.white24, child: Icon(Icons.person, color: Colors.white))]), const SizedBox(height: 20),
                             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text("Scans Done: $scansDone/$totalAllotted", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)), Text("${(progress * 100).toInt()}%", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]), const SizedBox(height: 8),
                             ClipRRect(borderRadius: BorderRadius.circular(10), child: LinearProgressIndicator(value: progress, minHeight: 10, backgroundColor: Colors.white24, color: Colors.white)), const SizedBox(height: 10),
-                            Text("Remaining: $remainingMeals meals", style: const TextStyle(color: Colors.white, fontSize: 12, fontStyle: FontStyle.italic)),
+
+                            // 🚀 NAYA JUGAAD: Row with Remaining Meals & Leave Button
+                            Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text("Remaining: $remainingMeals meals", style: const TextStyle(color: Colors.white, fontSize: 12, fontStyle: FontStyle.italic)),
+                                  GestureDetector(
+                                      onTap: () => _confirmLeaveMess1(context, messName, widget.selectedMessId!),
+                                      child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                          decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.redAccent.withOpacity(0.5))),
+                                          child: const Row(
+                                              children: [
+                                                Icon(Icons.exit_to_app, color: Colors.redAccent, size: 14),
+                                                SizedBox(width: 5),
+                                                Text("Leave", style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold))
+                                              ]
+                                          )
+                                      )
+                                  )
+                                ]
+                            )
                           ],
                         ),
                       ),
@@ -771,7 +898,19 @@ class _HomeTabState extends State<_HomeTab> {
                                 ...votingOptions.map((option) => Padding(padding: const EdgeInsets.only(bottom: 8.0), child: SizedBox(width: double.infinity, child: OutlinedButton(style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white24), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), onPressed: () async { await FirebaseFirestore.instance.collection('users').doc(widget.selectedMessId).update({'voting_results.$option': FieldValue.increment(1), 'voted_by': FieldValue.arrayUnion([widget.studentUid])}); if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Voted for $option! ✅"), backgroundColor: Colors.green)); }, child: Text(option.toString()))))).toList(),
                               ] else ...[
                                 const Text("Live Results (You have voted!):", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)), const SizedBox(height: 15),
-                                ...votingResults.entries.map((entry) { double votePercent = totalVotes > 0 ? entry.value / totalVotes : 0.0; return Padding(padding: const EdgeInsets.only(bottom: 12.0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(entry.key, style: const TextStyle(color: Colors.white)), Text("${entry.value} votes", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12))]), const SizedBox(height: 6), ClipRRect(borderRadius: BorderRadius.circular(5), child: LinearProgressIndicator(value: votePercent, minHeight: 8, backgroundColor: Colors.white10, color: Colors.blueAccent))])); }).toList(), const SizedBox(height: 10), Text("Total Votes: $totalVotes (Poll auto-expires in 7 days)", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                                ...votingResults.entries.map((entry) { double votePercent = totalVotes > 0 ? entry.value / totalVotes : 0.0; return Padding(padding: const EdgeInsets.only(bottom: 12.0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(entry.key, style: const TextStyle(color: Colors.white)), Text("${entry.value} votes", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12))]), const SizedBox(height: 6), ClipRRect(borderRadius: BorderRadius.circular(5), child: LinearProgressIndicator(value: votePercent, minHeight: 8, backgroundColor: Colors.white10, color: Colors.blueAccent))])); }).toList(), const SizedBox(height: 10),
+
+                                // 🚀 NAYA JUGAAD: Smart Sunday Countdown
+                                Builder(
+                                    builder: (context) {
+                                      DateTime now = DateTime.now();
+                                      int daysUntilSunday = DateTime.sunday - now.weekday;
+                                      if (daysUntilSunday <= 0) daysUntilSunday += 7;
+                                      String countdownText = (now.weekday == DateTime.sunday) ? "Ends Today! ⏳" : "Ends in $daysUntilSunday days ⏳";
+
+                                      return Text("Total Votes: $totalVotes • $countdownText", style: const TextStyle(color: Colors.grey, fontSize: 11));
+                                    }
+                                )
                               ]
                             ],
                           ),

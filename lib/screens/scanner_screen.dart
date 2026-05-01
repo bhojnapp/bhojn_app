@@ -19,7 +19,7 @@ String _getMealType(String timeStr) {
   }
 }
 
-// Payment Mode Enum (Naya Jugaad for 3 Options)
+// Payment Mode Enum
 enum PaymentMode { thali, fifteenDays, monthly }
 
 class ScannerScreen extends StatefulWidget {
@@ -31,8 +31,6 @@ class ScannerScreen extends StatefulWidget {
 class _ScannerScreenState extends State<ScannerScreen> {
   MobileScannerController cameraController = MobileScannerController();
   bool isScanning = true;
-
-  // 🚀 NAYA JUGAAD: Apna khud ka state variable flashlight ke liye
   bool _isTorchOn = false;
 
   void _onDetect(BarcodeCapture capture) {
@@ -41,6 +39,59 @@ class _ScannerScreenState extends State<ScannerScreen> {
     if (barcodes.isNotEmpty) {
       final String code = barcodes.first.rawValue ?? "Unknown QR";
       _processScannedQR(code);
+    }
+  }
+
+  // 🚀 NAYA JUGAAD: Auto-Remove Logic
+  void _handlePlanExhaustion(String studentUid, String messUid) async {
+    try {
+      var studentDoc = await FirebaseFirestore.instance.collection('users').doc(studentUid).get();
+      if(studentDoc.exists) {
+        var data = studentDoc.data()!;
+        List<dynamic> activeMesses = data['active_messes'] ?? [];
+        activeMesses.remove(messUid);
+
+        Map<String, dynamic> updates = {'active_messes': activeMesses};
+        if (data['joined_mess_id'] == messUid) {
+          updates['joined_mess_id'] = '';
+        }
+
+        await FirebaseFirestore.instance.collection('users').doc(studentUid).update(updates);
+
+        // Notify student internally
+        await FirebaseFirestore.instance.collection('users').doc(studentUid).collection('notifications').add({
+          'title': 'Plan Expired ⚠️',
+          'body': 'Your meal plan for this mess is completed. Please purchase a new plan to continue.',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'type': 'system'
+        });
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => AlertDialog(
+                backgroundColor: BhojnTheme.surfaceCard,
+                title: const Text("Plan Exhausted ⚠️", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                content: const Text("Your allotted meals for this plan have been completed. You have been unlinked from this mess. Please buy a new plan to continue dining.", style: TextStyle(color: Colors.white70)),
+                actions: [
+                  ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: BhojnTheme.primaryOrange),
+                      onPressed: () {
+                        Navigator.pop(context); // close dialog
+                        Navigator.pop(context); // exit scanner screen
+                      },
+                      child: const Text("Understood", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                  )
+                ]
+            )
+        );
+      }
+    } catch(e) {
+      _resetScannerWithError("Failed to process plan expiration.");
     }
   }
 
@@ -61,18 +112,31 @@ class _ScannerScreenState extends State<ScannerScreen> {
         const SnackBar(content: Text("Processing QR Code...", style: TextStyle(color: Colors.white)), duration: Duration(seconds: 1)),
       );
 
-      // 🚀 TIMEOUT LAGA DIYA HAI TAANI APP ATKE NAHI (Bug #1 Fixed)
+      // 🚀 TIMEOUT REDUCED TO 4 SECONDS FOR FASTER FAILURES
       var studentDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid)
           .get()
-          .timeout(const Duration(seconds: 10), onTimeout: () => throw Exception("timeout"));
+          .timeout(const Duration(seconds: 4), onTimeout: () => throw Exception("timeout"));
 
       var studentData = studentDoc.data() as Map<String, dynamic>? ?? {};
       String actualStudentName = studentData['name'] ?? "Student";
       List<dynamic> activeMesses = studentData['active_messes'] ?? [];
       String? joinedMessId = studentData['joined_mess_id'];
 
-      // Agar enrolled hai, toh direct attendance mark karo
+      // Agar enrolled hai, toh direct attendance ki aage ki process karo
       if (activeMesses.contains(messUid) || joinedMessId == messUid) {
+
+        // 🚀 CHECK IF MEALS ARE EXHAUSTED BEFORE MARKING ATTENDANCE
+        Map<String, dynamic> messDataMap = studentData['mess_data']?[messUid] ?? {};
+        int remaining = messDataMap.containsKey('remaining_meals')
+            ? (int.tryParse(messDataMap['remaining_meals']?.toString() ?? '0') ?? 0)
+            : (int.tryParse(studentData['remaining_meals']?.toString() ?? '0') ?? 0);
+
+        if (remaining <= 0) {
+          _handlePlanExhaustion(user.uid, messUid);
+          return; // Yahan se seedha bahar! No attendance.
+        }
+
+        // Agar meals bache hain, tabhi attendance mark hogi
         _markDirectAttendance(messUid, user, actualStudentName);
         return;
       }
@@ -80,10 +144,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
       // Agar naya student hai, toh Mess ki info laao
       var messDoc = await FirebaseFirestore.instance.collection('users').doc(messUid)
           .get()
-          .timeout(const Duration(seconds: 10), onTimeout: () => throw Exception("timeout"));
+          .timeout(const Duration(seconds: 4), onTimeout: () => throw Exception("timeout"));
 
       if (!messDoc.exists) {
-        _resetScannerWithError("Invalid Mess QR Code! ❌");
+        _resetScannerWithError("Invalid Mess QR Code! Please scan a valid BHOJN QR.");
         return;
       }
 
@@ -92,8 +156,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
       int priceThali = int.tryParse(messData['price_thali']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '0') ?? 0;
       int priceMonthly = int.tryParse(messData['price_monthly']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '0') ?? 0;
-
-      // Fallback: Agar owner ne 15 days ka price set nahi kiya, toh exactly half pakad lega.
       int price15Days = int.tryParse(messData['price_15days']?.toString().replaceAll(RegExp(r'[^0-9]'), '') ?? '0') ?? (priceMonthly ~/ 2);
 
       String finalUpi = messData['upi_id'] ?? ownerUpi;
@@ -104,9 +166,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
       }
     } catch (e) {
       if (e.toString().contains("timeout")) {
-        _resetScannerWithError("Internet connection is slow! 📶");
+        // 🚀 PROFESSIONAL TIMEOUT MESSAGE
+        _resetScannerWithError("Connection timed out. Please ensure a stable network and rescan. 📶");
       } else {
-        _resetScannerWithError("Unrecognized QR Format!");
+        _resetScannerWithError("Unrecognized QR format. Please scan a valid BHOJN code.");
       }
     }
   }
@@ -116,7 +179,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     String mealType = _getMealType(timeStr);
 
     try {
-      var messDoc = await FirebaseFirestore.instance.collection('users').doc(messUid).get().timeout(const Duration(seconds: 10));
+      var messDoc = await FirebaseFirestore.instance.collection('users').doc(messUid).get().timeout(const Duration(seconds: 4));
       String messName = messDoc.data()?['mess_name'] ?? "Mess";
 
       // Mark Transactions
@@ -135,11 +198,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("✅ $mealType Attendance Marked! Enjoy.", style: const TextStyle(color: Colors.white)), backgroundColor: Colors.green));
+        // SnackBar silent kar di kyunki ab aage Pop-up aayega
         Navigator.pop(context, true);
       }
     } catch (e) {
-      _resetScannerWithError("Failed to mark attendance due to network. Try again!");
+      _resetScannerWithError("Failed to process scan due to network issue. Try again!");
     }
   }
 
@@ -168,7 +231,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     ).whenComplete(() {
       setState(() {
         isScanning = true;
-        _isTorchOn = false; // Sheet band hone par torch UI reset
+        _isTorchOn = false;
       });
       cameraController.start();
     });
@@ -198,7 +261,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
           ),
           Positioned(top: 50, left: 20, child: IconButton(icon: const Icon(Icons.arrow_back_ios, color: Colors.white), onPressed: () => Navigator.pop(context))),
 
-          // 🚀 FLASHLIGHT BUTTON FIXED (ValueListenable Error Removed)
           Positioned(
             top: 50, right: 20,
             child: IconButton(
@@ -260,19 +322,18 @@ class _PaymentSheetContentState extends State<_PaymentSheetContent> {
       return;
     }
 
-    // 🚀🚀 NAYA FIX: SPAM BLOCKER (UPI App khulne se pehle check!) 🚀🚀
     if (_selectedMode != PaymentMode.thali) {
       try {
         var existingReq = await FirebaseFirestore.instance.collection('join_requests').doc(user.uid).get();
         if (existingReq.exists && existingReq.data()?['status'] == 'pending') {
           if (mounted) {
-            Navigator.pop(context); // Payment sheet band kar do
+            Navigator.pop(context);
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text("Hold on! ✋ You already have a pending request. Please wait for the owner's response.", style: TextStyle(color: Colors.white)),
               backgroundColor: Colors.orange,
             ));
           }
-          return; // 🛑 Yahan se aage code nahi jayega, UPI app open nahi hoga!
+          return;
         }
       } catch (e) {
         print("Error checking pending requests: $e");
@@ -306,7 +367,6 @@ class _PaymentSheetContentState extends State<_PaymentSheetContent> {
       String timeStr = DateFormat('hh:mm a').format(DateTime.now());
 
       if (_selectedMode != PaymentMode.thali) {
-        // Handle 15 Days or Monthly
         int expectedTotal = _selectedMode == PaymentMode.fifteenDays ? widget.price15Days : widget.priceMonthly;
         int allottedMeals = _selectedMode == PaymentMode.fifteenDays ? 30 : 60;
 
@@ -335,7 +395,6 @@ class _PaymentSheetContentState extends State<_PaymentSheetContent> {
         });
 
       } else {
-        // Daily Thali Logic
         String type = "Thali x$thaliQty (Pending)";
         await FirebaseFirestore.instance.collection('users').doc(widget.messUid).collection('recent_transactions').add({
           'name': widget.studentName, 'uid': user.uid, 'amount': amount, 'type': type, 'time': timeStr, 'isPending': true, 'timestamp': FieldValue.serverTimestamp(),

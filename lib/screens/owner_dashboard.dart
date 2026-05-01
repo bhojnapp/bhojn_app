@@ -345,7 +345,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
 }
 
 // ============================================================================
-// 🏠 1. HOME TAB (🔥 Strict Newest-First Sorting & Real Name Fix)
+// 🏠 1. HOME TAB (🔥 Strict Newest-First Sorting, Real Name & Multi-Scan Fix)
 // ============================================================================
 class _HomeTab extends StatelessWidget {
   final String uid; final Map<String, dynamic> ownerData;
@@ -485,18 +485,54 @@ class _HomeTab extends StatelessWidget {
                     if (totalServedToday == 0 && smartTodayIncome == 0)
                       const Center(child: Padding(padding: EdgeInsets.all(20.0), child: Text("No scans yet today.", style: TextStyle(color: Colors.grey))))
                     else
-                    // 🚀 THE FIX: Order reversed. Latest session of the day shows on TOP.
                       ...['Dinner 🍽️', 'Lunch 🍱', 'Breakfast 🍳', 'Meal 🍛'].map((sessionKey) {
-                        var items = sessionGroups[sessionKey] ?? [];
-                        if (items.isEmpty) return const SizedBox();
+                        var rawItems = sessionGroups[sessionKey] ?? [];
+                        if (rawItems.isEmpty) return const SizedBox();
 
-                        // 🚀 MEGA FIX: Explicitly sorting scans so the newest is ALWAYS at index 0 (Top)
-                        items.sort((a, b) {
+                        // Pehle raw items ko time ke hisaab se sort kar lo
+                        rawItems.sort((a, b) {
                           var dataA = a.data() as Map<String, dynamic>;
                           var dataB = b.data() as Map<String, dynamic>;
                           DateTime timeA = dataA['timestamp'] != null ? (dataA['timestamp'] as Timestamp).toDate() : DateTime.fromMillisecondsSinceEpoch(0);
                           DateTime timeB = dataB['timestamp'] != null ? (dataB['timestamp'] as Timestamp).toDate() : DateTime.fromMillisecondsSinceEpoch(0);
                           return timeB.compareTo(timeA); // Descending order
+                        });
+
+                        // 🚀 NEW LOGIC: Consolidate multiple scans by the same student
+                        Map<String, int> scanCountsByUid = {};
+                        Map<String, Map<String, dynamic>> latestScanByUid = {};
+                        List<Map<String, dynamic>> finalDisplayList = [];
+
+                        for (var doc in rawItems) {
+                          var student = doc.data() as Map<String, dynamic>;
+                          String sUid = student['uid'] ?? '';
+                          int amt = (student['amount'] is int) ? student['amount'] : (int.tryParse(student['amount']?.toString() ?? '0') ?? 0);
+
+                          if (amt == 0 && sUid.isNotEmpty) {
+                            // Agar scan hai, toh usko group karo
+                            scanCountsByUid[sUid] = (scanCountsByUid[sUid] ?? 0) + 1;
+                            // Hum pehla wala (sabse latest) scan ka data rakhenge UI dikhane ke liye
+                            if (!latestScanByUid.containsKey(sUid)) {
+                              latestScanByUid[sUid] = student;
+                            }
+                          } else {
+                            // Agar payment hai, toh seedha list mein daal do
+                            finalDisplayList.add(student);
+                          }
+                        }
+
+                        // Jo scans group kiye hain, unko final list mein add karo
+                        for (var sUid in latestScanByUid.keys) {
+                          var scanData = Map<String, dynamic>.from(latestScanByUid[sUid]!);
+                          scanData['multi_scan_count'] = scanCountsByUid[sUid]; // Kitni thali khayi wo pass kar diya
+                          finalDisplayList.add(scanData);
+                        }
+
+                        // Final list ko wapas time ke hisaab se sort kar lo taaki latest sabse upar rahe
+                        finalDisplayList.sort((a, b) {
+                          DateTime timeA = a['timestamp'] != null ? (a['timestamp'] as Timestamp).toDate() : DateTime.fromMillisecondsSinceEpoch(0);
+                          DateTime timeB = b['timestamp'] != null ? (b['timestamp'] as Timestamp).toDate() : DateTime.fromMillisecondsSinceEpoch(0);
+                          return timeB.compareTo(timeA);
                         });
 
                         int sessionScans = sessionScanCounts[sessionKey] ?? 0;
@@ -508,7 +544,7 @@ class _HomeTab extends StatelessWidget {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(sessionKey, style: const TextStyle(color: BhojnTheme.accentRed, fontWeight: FontWeight.bold, fontSize: 14)),
-                                Text("Scanned: $sessionScans", style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+                                Text("Total Served: $sessionScans", style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
                               ],
                             ),
                             const Divider(color: Colors.white10, height: 20),
@@ -516,9 +552,9 @@ class _HomeTab extends StatelessWidget {
                             ListView.builder(
                                 shrinkWrap: true,
                                 physics: const NeverScrollableScrollPhysics(),
-                                itemCount: items.length,
+                                itemCount: finalDisplayList.length,
                                 itemBuilder: (context, index) {
-                                  var student = items[index].data() as Map<String, dynamic>;
+                                  var student = finalDisplayList[index];
                                   String time = student['time'] ?? '--:--';
 
                                   String type = student['type'] ?? "Scan";
@@ -541,6 +577,7 @@ class _HomeTab extends StatelessWidget {
                                   }
 
                                   String amt = student['amount']?.toString() ?? "0";
+                                  int multiScanCount = student['multi_scan_count'] ?? 1;
 
                                   DateTime dt = student['timestamp'] != null ? (student['timestamp'] as Timestamp).toDate() : DateTime.now();
                                   String dateStamp = DateFormat('dd MMM yyyy').format(dt);
@@ -552,11 +589,22 @@ class _HomeTab extends StatelessWidget {
                                           leading: CircleAvatar(backgroundColor: Colors.green.withOpacity(0.2), child: const Icon(Icons.check, color: Colors.green)),
                                           title: Text(sName, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
                                           subtitle: Text("$dateStamp • $time", style: const TextStyle(color: Colors.grey, fontSize: 11)),
+
+                                          // 🚀 MULTI-SCAN COUNTER UI UPDATE
                                           trailing: Column(
                                               mainAxisAlignment: MainAxisAlignment.center,
                                               crossAxisAlignment: CrossAxisAlignment.end,
                                               children: [
-                                                Text(amt == "0" ? "Present" : "+ ₹$amt", style: TextStyle(color: amt == "0" ? Colors.blue : Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
+                                                amt == "0"
+                                                    ? (multiScanCount > 1
+                                                    ? Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(color: BhojnTheme.primaryOrange.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+                                                  child: Text("x$multiScanCount Meals", style: const TextStyle(color: BhojnTheme.primaryOrange, fontWeight: FontWeight.bold, fontSize: 12)),
+                                                )
+                                                    : const Text("Present", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 15)))
+                                                    : Text("+ ₹$amt", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 16)),
+                                                const SizedBox(height: 3),
                                                 Text(type, style: const TextStyle(color: Colors.grey, fontSize: 10))
                                               ]
                                           )
@@ -720,11 +768,11 @@ class _AttendanceTabState extends State<_AttendanceTab> {
   String _currentFilter = 'All';
   final List<String> _filters = ['All', 'Present', 'Absent', 'Pending Dues', 'Full Paid'];
 
-  // 🚀 PRO JOIN CONFIRMATION (Using Batch Write Service)
-  void _acceptStudent(String requestDocId, String studentUid, String studentName, num dues, int totalMeals, num paidAmt) async { // 👈 Yahan paidAmt add kar diya
+  // 🚀 PRO JOIN CONFIRMATION
+  void _acceptStudent(String requestDocId, String studentUid, String studentName, num dues, int totalMeals, num paidAmt) async {
     try {
       final requestService = RequestService();
-      String timeStr = DateFormat('hh:mm a').format(DateTime.now()); // 👈 Yahan timeStr nikal liya
+      String timeStr = DateFormat('hh:mm a').format(DateTime.now());
 
       await requestService.acceptRequest(
         requestId: requestDocId,
@@ -743,7 +791,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
     }
   }
 
-  // 🚀 PRO DECLINE (Using Request Service)
+  // 🚀 PRO DECLINE
   void _declineStudent(String requestDocId) async {
     try {
       final requestService = RequestService();
@@ -754,13 +802,11 @@ class _AttendanceTabState extends State<_AttendanceTab> {
     }
   }
 
-  // 🚀 MEGA FIX: CUSTOM DUE PAYMENT CALCULATOR (Partial or Full)
+  // 🚀 CUSTOM DUE PAYMENT CALCULATOR
   void _verifyPayment(String txnId, String studentUid, int amtPaid) async {
     try {
-      // 1. Transaction Verify kar do
       await FirebaseFirestore.instance.collection('users').doc(widget.uid).collection('recent_transactions').doc(txnId).update({'isPending': false});
 
-      // 2. Student ka current due nikalo aur usme se Custom Amount minus karo
       var userDoc = await FirebaseFirestore.instance.collection('users').doc(studentUid).get();
       if(userDoc.exists) {
         var data = userDoc.data()!;
@@ -769,7 +815,7 @@ class _AttendanceTabState extends State<_AttendanceTab> {
 
         num currentDues = num.tryParse(myMess['pending_dues']?.toString() ?? '0') ?? 0;
         num newDues = currentDues - amtPaid;
-        if (newDues < 0) newDues = 0; // Negative na ho jaye isliye safety lock
+        if (newDues < 0) newDues = 0;
 
         await FirebaseFirestore.instance.collection('users').doc(studentUid).set({
           'mess_data': {
@@ -791,6 +837,61 @@ class _AttendanceTabState extends State<_AttendanceTab> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payment Claim Rejected! ❌"), backgroundColor: Colors.red));
   }
 
+  // 🚀 CONFIRMATION ALERT FOR KICKING STUDENT
+  void _confirmRemoveStudent(BuildContext context, String studentUid, String studentName) {
+    showDialog(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: BhojnTheme.surfaceCard,
+          title: Text("Remove $studentName? ⚠️", style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          content: const Text("Kalesh ho gaya kya bhai? 😅\n\nAre you sure you want to remove this student? They won't be able to scan your QR or see your mess in their dashboard anymore.", style: TextStyle(color: Colors.grey)),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text("Cancel", style: TextStyle(color: Colors.white70))),
+            ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                onPressed: () {
+                  Navigator.pop(dialogContext); // Dialog band
+                  Navigator.pop(context); // Bottom sheet profile band
+                  _removeStudent(studentUid, studentName);
+                },
+                child: const Text("Yes, Remove", style: TextStyle(color: Colors.white))
+            )
+          ],
+        )
+    );
+  }
+
+  // 🚀 BACKEND LOGIC TO KICK STUDENT INSTANTLY
+  void _removeStudent(String studentUid, String studentName) async {
+    try {
+      var studentDoc = await FirebaseFirestore.instance.collection('users').doc(studentUid).get();
+      if (studentDoc.exists) {
+        var data = studentDoc.data()!;
+        List<dynamic> activeMesses = data['active_messes'] ?? [];
+        activeMesses.remove(widget.uid);
+
+        Map<String, dynamic> updates = {'active_messes': activeMesses};
+        if (data['joined_mess_id'] == widget.uid) {
+          updates['joined_mess_id'] = '';
+        }
+
+        await FirebaseFirestore.instance.collection('users').doc(studentUid).update(updates);
+
+        await FirebaseFirestore.instance.collection('users').doc(studentUid).collection('notifications').add({
+          'title': 'Mess Removed 🚫',
+          'body': 'You have been removed from ${widget.ownerData['mess_name']}. If this is a mistake, please contact the owner.',
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'type': 'system'
+        });
+
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$studentName ko list se nikal diya gaya hai! 🚫"), backgroundColor: Colors.green));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red));
+    }
+  }
+
   void _showStudentProfileAndHistory(BuildContext context, Map<String, dynamic> studentData, String studentUid) {
     String name = studentData['name'] ?? "Unknown Student";
     String email = studentData['email'] ?? "No Email provided";
@@ -799,7 +900,18 @@ class _AttendanceTabState extends State<_AttendanceTab> {
 
     Map<String, dynamic> specData = studentData['mess_data']?[widget.uid] ?? {};
     num dues = num.tryParse(specData['pending_dues']?.toString() ?? studentData['pending_dues']?.toString() ?? '0') ?? 0;
+
+    // Attendance Calculation
     int totalMeals = int.tryParse(specData['total_allotted_meals']?.toString() ?? '60') ?? 60;
+    int rawRemaining = int.tryParse(specData['remaining_meals']?.toString() ?? totalMeals.toString()) ?? totalMeals;
+
+    int remainingMeals = rawRemaining;
+    int scansDone = totalMeals - remainingMeals;
+    if (scansDone < 0) scansDone = 0;
+    if (remainingMeals < 0) remainingMeals = 0;
+
+    // Progress for the sleek bar
+    double progress = totalMeals > 0 ? (scansDone / totalMeals).clamp(0.0, 1.0) : 0.0;
 
     showModalBottomSheet(
         context: context, isScrollControlled: true, backgroundColor: BhojnTheme.surfaceCard, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -820,9 +932,9 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 15),
+                    const SizedBox(height: 25),
 
-                    // 🚀 SMART MATHEMATICS: Extract Actual Paid Amount
+                    // 🚀 THE NEW MODERN AESTHETIC STATS
                     FutureBuilder<DocumentSnapshot>(
                         future: FirebaseFirestore.instance.collection('users').doc(widget.uid).get(),
                         builder: (context, ownerSnap) {
@@ -839,36 +951,84 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                           if (totalPaid < 0) totalPaid = 0;
 
                           return Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
-                              child: Row(
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              child: Column(
                                   children: [
-                                    Expanded(
-                                        child: Container(
-                                            padding: const EdgeInsets.all(10),
-                                            decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.green.withOpacity(0.3))),
-                                            child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  const Text("Total Paid", style: TextStyle(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold)),
-                                                  const SizedBox(height: 2),
-                                                  Text("₹$totalPaid", style: const TextStyle(color: Colors.green, fontSize: 16, fontWeight: FontWeight.w900)),
-                                                ]
-                                            )
-                                        )
+                                    // Row 1: Financials
+                                    Row(
+                                        children: [
+                                          // Total Paid Card
+                                          Expanded(
+                                              child: Container(
+                                                  padding: const EdgeInsets.all(15),
+                                                  decoration: BoxDecoration(
+                                                      color: Colors.green.withOpacity(0.08),
+                                                      borderRadius: BorderRadius.circular(15),
+                                                      border: Border.all(color: Colors.green.withOpacity(0.3), width: 1.5)
+                                                  ),
+                                                  child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Row(children: [const Icon(Icons.verified_rounded, color: Colors.green, size: 16), const SizedBox(width: 5), const Text("Total Paid", style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold))]),
+                                                        const SizedBox(height: 8),
+                                                        Text("₹$totalPaid", style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+                                                      ]
+                                                  )
+                                              )
+                                          ),
+                                          const SizedBox(width: 15),
+                                          // Pending Due Card
+                                          Expanded(
+                                              child: Container(
+                                                  padding: const EdgeInsets.all(15),
+                                                  decoration: BoxDecoration(
+                                                      color: dues > 0 ? Colors.redAccent.withOpacity(0.08) : Colors.blue.withOpacity(0.08),
+                                                      borderRadius: BorderRadius.circular(15),
+                                                      border: Border.all(color: dues > 0 ? Colors.redAccent.withOpacity(0.3) : Colors.blue.withOpacity(0.3), width: 1.5)
+                                                  ),
+                                                  child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Row(children: [Icon(dues > 0 ? Icons.error_outline_rounded : Icons.check_circle_outline, color: dues > 0 ? Colors.redAccent : Colors.blue, size: 16), const SizedBox(width: 5), Text(dues > 0 ? "Pending Due" : "Status", style: TextStyle(color: dues > 0 ? Colors.redAccent : Colors.blue, fontSize: 12, fontWeight: FontWeight.bold))]),
+                                                        const SizedBox(height: 8),
+                                                        Text(dues > 0 ? "₹$dues" : "Clear ✅", style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+                                                      ]
+                                                  )
+                                              )
+                                          ),
+                                        ]
                                     ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                        child: Container(
-                                            padding: const EdgeInsets.all(10),
-                                            decoration: BoxDecoration(color: dues > 0 ? Colors.red.withOpacity(0.1) : Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: dues > 0 ? Colors.red.withOpacity(0.3) : Colors.blue.withOpacity(0.3))),
-                                            child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(dues > 0 ? "Pending Due" : "Status", style: TextStyle(color: dues > 0 ? Colors.redAccent : Colors.blue, fontSize: 10, fontWeight: FontWeight.bold)),
-                                                  const SizedBox(height: 2),
-                                                  Text(dues > 0 ? "₹$dues" : "Fully Paid ✅", style: TextStyle(color: dues > 0 ? Colors.redAccent : Colors.blue, fontSize: 16, fontWeight: FontWeight.w900)),
-                                                ]
-                                            )
+                                    const SizedBox(height: 15),
+
+                                    // Row 2: Meals Progress Card
+                                    Container(
+                                        padding: const EdgeInsets.all(18),
+                                        decoration: BoxDecoration(
+                                          color: BhojnTheme.primaryOrange.withOpacity(0.08),
+                                          borderRadius: BorderRadius.circular(15),
+                                          border: Border.all(color: BhojnTheme.primaryOrange.withOpacity(0.3), width: 1.5),
+                                        ),
+                                        child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                  children: [
+                                                    Row(children: [const Icon(Icons.restaurant_menu_rounded, color: BhojnTheme.primaryOrange, size: 18), const SizedBox(width: 8), const Text("Meals Consumed", style: TextStyle(color: BhojnTheme.primaryOrange, fontSize: 14, fontWeight: FontWeight.bold))]),
+                                                    Text("$scansDone / $totalMeals", style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                                                  ]
+                                              ),
+                                              const SizedBox(height: 12),
+                                              ClipRRect(
+                                                  borderRadius: BorderRadius.circular(10),
+                                                  child: LinearProgressIndicator(
+                                                    value: progress,
+                                                    minHeight: 8,
+                                                    backgroundColor: Colors.white10,
+                                                    valueColor: const AlwaysStoppedAnimation<Color>(BhojnTheme.primaryOrange),
+                                                  )
+                                              )
+                                            ]
                                         )
                                     ),
                                   ]
@@ -877,10 +1037,31 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                         }
                     ),
 
-                    const Padding(padding: EdgeInsets.only(left: 20, top: 15), child: Text("Complete Attendance History 🍛", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
+                    const SizedBox(height: 20),
+
+                    // 🚀 REMOVE STUDENT BUTTON
+                    Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.redAccent,
+                                    side: const BorderSide(color: Colors.redAccent, width: 1.5),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                                ),
+                                icon: const Icon(Icons.person_remove, size: 18),
+                                label: const Text("Remove Student from Mess", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                onPressed: () => _confirmRemoveStudent(context, studentUid, name)
+                            )
+                        )
+                    ),
+                    const SizedBox(height: 25),
+
+                    const Padding(padding: EdgeInsets.only(left: 20), child: Text("Complete Attendance History 🍛", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold))),
                     const SizedBox(height: 10),
 
-                    // 🚀 FIXED: Galti se yahan join_requests aa gaya tha, isko wapas recent_transactions kar diya
                     Expanded(
                       child: StreamBuilder<QuerySnapshot>(
                           stream: FirebaseFirestore.instance.collection('users').doc(widget.uid).collection('recent_transactions').orderBy('timestamp', descending: true).limit(1000).snapshots(),
@@ -999,13 +1180,11 @@ class _AttendanceTabState extends State<_AttendanceTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
 
-          // 🚀 SMART HIDING: PENDING JOIN REQUESTS (PRO FIX APPLIED)
           StreamBuilder<QuerySnapshot>(
-            // 🚀 NAYA STREAM: Ab yeh Global postbox 'join_requests' mein check karega!
               stream: FirebaseFirestore.instance.collection('join_requests').where('owner_id', isEqualTo: widget.uid).where('status', isEqualTo: 'pending').snapshots(),
               builder: (context, requestSnap) {
                 if (!requestSnap.hasData || requestSnap.data!.docs.isEmpty) {
-                  return const SizedBox.shrink(); // Ekdum gayab ho jayega agar khali hai!
+                  return const SizedBox.shrink();
                 }
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1022,8 +1201,6 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                         itemCount: requestSnap.data!.docs.length,
                         itemBuilder: (context, index) {
                           var req = requestSnap.data!.docs[index].data() as Map<String, dynamic>;
-
-                          // 🚀 NAYA: Request ki ID aur Student ki ID dono alag alag nikaali
                           String requestDocId = requestSnap.data!.docs[index].id;
                           String sUid = req['student_id'] ?? '';
                           String sName = req['student_name'] ?? 'Student';
@@ -1059,12 +1236,11 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     GestureDetector(
-                                        onTap: () => _declineStudent(requestDocId), // 🚀 requestDocId bhej diya
+                                        onTap: () => _declineStudent(requestDocId),
                                         child: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.red.withOpacity(0.2), shape: BoxShape.circle), child: const Icon(Icons.close, color: Colors.red, size: 16))
                                     ),
                                     ElevatedButton(
                                         style: ElevatedButton.styleFrom(backgroundColor: Colors.green, padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                                        // 🚀 YAHAN paidAmt PASS KAR DIYA
                                         onPressed: () => _acceptStudent(requestDocId, sUid, sName, dues, meals, paidAmt),
                                         child: const Text("ACCEPT", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))
                                     ),
@@ -1082,7 +1258,6 @@ class _AttendanceTabState extends State<_AttendanceTab> {
               }
           ),
 
-          // 🚀 SMART HIDING: PENDING DUE PAYMENTS
           StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance.collection('users').doc(widget.uid).collection('recent_transactions').where('isPending', isEqualTo: true).snapshots(),
               builder: (context, pendingTxnSnap) {
@@ -1246,7 +1421,6 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                             ),
                           ),
 
-                          // 🚀 NEW: REMIND DEFAULTERS BUTTON
                           if (_currentFilter == 'Pending Dues' && filteredStudents.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -1259,7 +1433,6 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                     onPressed: () async {
                                       try {
                                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sending Reminders... ⏳")));
-
                                         final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('remindDefaulters');
                                         final result = await callable.call(<String, dynamic>{
                                           'messName': widget.ownerData['mess_name'] ?? 'Your Mess',
@@ -1289,6 +1462,14 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                 Map<String, dynamic> specData = student['mess_data']?[widget.uid] ?? {};
                                 num stuPending = num.tryParse(specData['pending_dues']?.toString() ?? student['pending_dues']?.toString() ?? '0') ?? 0;
 
+                                int totalMeals = int.tryParse(specData['total_allotted_meals']?.toString() ?? '60') ?? 60;
+                                int rawRemaining = int.tryParse(specData['remaining_meals']?.toString() ?? totalMeals.toString()) ?? totalMeals;
+
+                                int remainingMeals = rawRemaining;
+                                int scansDone = totalMeals - remainingMeals;
+                                if (scansDone < 0) scansDone = 0;
+                                if (remainingMeals < 0) remainingMeals = 0;
+
                                 var stats = studentTodayStats[sUid];
                                 bool hasScannedToday = presentUids.contains(sUid);
                                 bool hasBF = stats?['BF'] ?? false;
@@ -1301,7 +1482,19 @@ class _AttendanceTabState extends State<_AttendanceTab> {
                                     child: ListTile(
                                         onTap: () => _showStudentProfileAndHistory(context, student, sUid),
                                         leading: CircleAvatar(backgroundColor: Colors.white10, child: Icon(Icons.person, color: hasScannedToday ? Colors.green : Colors.white)),
-                                        title: Text(student['name'] ?? "Unknown", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+
+                                        title: Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Expanded(child: Text(student['name'] ?? "Unknown", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(color: BhojnTheme.primaryOrange.withOpacity(0.2), borderRadius: BorderRadius.circular(5)),
+                                              child: Text("$scansDone/$totalMeals", style: const TextStyle(color: BhojnTheme.primaryOrange, fontSize: 10, fontWeight: FontWeight.bold)),
+                                            )
+                                          ],
+                                        ),
+
                                         subtitle: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
